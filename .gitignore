@@ -1,0 +1,5 @@
+.vs/
+out/
+*.user
+*.suo
+*.vcxproj.user
