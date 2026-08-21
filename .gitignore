@@ -13,3 +13,18 @@ vcpkg/buildtrees/
 vcpkg/downloads/
 vcpkg/packages/
 vcpkg/installed/
+# Build output
+out/
+build/
+*.exe
+*.dll
+*.obj
+*.pdb
+
+# Visual Studio
+.vs/
+CMakeSettings.json
+
+# OS
+.DS_Store
+Thumbs.db
