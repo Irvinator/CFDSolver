@@ -5,23 +5,62 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ── vcpkg toolchain ───────────────────────────
+# This finds all vcpkg packages
+set(CMAKE_TOOLCHAIN_FILE
+    "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+    CACHE STRING "")
+
 if(MSVC)
     add_compile_options(/W4 /EHsc)
 else()
     add_compile_options(-Wall -Wextra -O2)
 endif()
 
-include_directories(src)
+include_directories(CFDSolver/src)
 
 add_library(CFDCore INTERFACE)
-target_include_directories(CFDCore INTERFACE src)
+target_include_directories(CFDCore
+    INTERFACE CFDSolver/src)
 
+# ── Find packages ─────────────────────────────
+find_package(glfw3 CONFIG REQUIRED)
+find_package(glad  CONFIG REQUIRED)
+find_package(glm   CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
+
+# ── Tests ─────────────────────────────────────
 enable_testing()
-add_executable(test_vector tests/test_vector.cpp)
-target_link_libraries(test_vector PRIVATE CFDCore)
-add_test(NAME VectorTest COMMAND test_vector)
 
-add_executable(heat_diffusion_1D examples/heat_diffusion_1D.cpp)
-target_link_libraries(heat_diffusion_1D PRIVATE CFDCore)
+add_executable(test_vector
+    CFDSolver/tests/test_vector.cpp)
+target_link_libraries(test_vector
+    PRIVATE CFDCore)
+add_test(NAME VectorTest
+    COMMAND test_vector)
 
-message(STATUS "CFDSolver v${PROJECT_VERSION} configured")
+add_executable(test_mesh2D
+    CFDSolver/tests/test_mesh2D.cpp)
+target_link_libraries(test_mesh2D
+    PRIVATE CFDCore)
+add_test(NAME Mesh2DTest
+    COMMAND test_mesh2D)
+
+# ── Solver examples ───────────────────────────
+add_executable(heat_diffusion_1D
+    CFDSolver/examples/heat_diffusion_1D.cpp)
+target_link_libraries(heat_diffusion_1D
+    PRIVATE CFDCore)
+
+# ── CFD App (ImGui + OpenGL) ──────────────────
+add_executable(cfd_app
+    CFDSolver/examples/cfd_app.cpp)
+target_link_libraries(cfd_app
+    PRIVATE
+    CFDCore
+    glfw
+    glad::glad
+    glm::glm
+    imgui::imgui)
+
+message(STATUS "CFDSolver configured")

@@ -8,3 +8,8 @@ output/
 *.csv
 *.vtk
 
+# vcpkg
+vcpkg/buildtrees/
+vcpkg/downloads/
+vcpkg/packages/
+vcpkg/installed/
