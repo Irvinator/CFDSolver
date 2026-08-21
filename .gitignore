@@ -3,3 +3,8 @@ out/
 *.user
 *.suo
 *.vcxproj.user
+# Output files
+output/
+*.csv
+*.vtk
+
