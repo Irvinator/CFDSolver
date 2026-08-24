@@ -1,10 +1,8 @@
-﻿cmake_minimum_required(VERSION 3.20)
-
+﻿
+cmake_minimum_required(VERSION 3.20)
 project(CFDSolver VERSION 0.1.0 LANGUAGES CXX)
 
-set(CMAKE_PREFIX_PATH
-    "C:/Users/Irvin/source/repos/basics/CFDSolver/vcpkg/installed/x64-windows"
-    CACHE STRING "")
+option(BUILD_UI "Build UI application" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,39 +14,42 @@ else()
     add_compile_options(-Wall -Wextra -O2)
 endif()
 
-include_directories(CFDSolver/src)
-
 add_library(CFDCore INTERFACE)
 target_include_directories(CFDCore
-    INTERFACE CFDSolver/src)
-
-find_package(glfw3  CONFIG REQUIRED)
-find_package(glad   CONFIG REQUIRED)
-find_package(glm    CONFIG REQUIRED)
-find_package(imgui  CONFIG REQUIRED)
+    INTERFACE ${CMAKE_SOURCE_DIR}/CFDSolver/src)
 
 enable_testing()
 
 add_executable(test_vector
     CFDSolver/tests/test_vector.cpp)
-target_link_libraries(test_vector
-    PRIVATE CFDCore)
-add_test(NAME VectorTest
-    COMMAND test_vector)
+target_link_libraries(test_vector PRIVATE CFDCore)
+add_test(NAME VectorTest COMMAND test_vector)
+
+add_executable(test_mesh2D
+    CFDSolver/src/mesh/mesh2D.cpp
+    CFDSolver/tests/test_mesh2D.cpp)
+target_link_libraries(test_mesh2D PRIVATE CFDCore)
+add_test(NAME Mesh2DTest COMMAND test_mesh2D)
 
 add_executable(heat_diffusion_1D
     CFDSolver/examples/heat_diffusion_1D.cpp)
-target_link_libraries(heat_diffusion_1D
-    PRIVATE CFDCore)
+target_link_libraries(heat_diffusion_1D PRIVATE CFDCore)
 
-add_executable(cfd_app
-    CFDSolver/examples/cfd_app.cpp)
-target_link_libraries(cfd_app
-    PRIVATE
-    CFDCore
-    glfw
-    glad::glad
-    glm::glm
-    imgui::imgui)
+if(BUILD_UI)
+    find_package(glfw3 CONFIG REQUIRED)
+    find_package(glad  CONFIG REQUIRED)
+    find_package(glm   CONFIG REQUIRED)
+    find_package(imgui CONFIG REQUIRED)
 
-message(STATUS "CFDSolver v${PROJECT_VERSION} configured")
+    add_executable(cfd_app
+        CFDSolver/examples/cfd_app.cpp)
+    target_link_libraries(cfd_app
+        PRIVATE
+        CFDCore
+        glfw
+        glad::glad
+        glm::glm
+        imgui::imgui)
+endif()
+
+message(STATUS "CFDSolver configured")
