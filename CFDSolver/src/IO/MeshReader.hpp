@@ -42,7 +42,7 @@ namespace CDF {
     OBJMesh loadONJ(const std::string& filepath){
         OBJMesh mesh;
 
-        std << ifstream file(filepath);
+        std::ifstream file(filepath);
 
         std::string line;
 
