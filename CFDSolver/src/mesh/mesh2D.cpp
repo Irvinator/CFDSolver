@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 
+//constructor
 Mesh::Mesh(int nx, int ny, double width, double height)
     : nx_(nx), ny_(ny), width_(width), height_(height)
 {
@@ -18,6 +19,7 @@ Mesh::Mesh(int nx, int ny, double width, double height)
     generate();
 }
 
+//generate mesh and establish cell connectivity
 void Mesh::generate()
 {
     cells_.clear();

@@ -35,6 +35,25 @@ add_executable(heat_diffusion_1D
     CFDSolver/examples/heat_diffusion_1D.cpp)
 target_link_libraries(heat_diffusion_1D PRIVATE CFDCore)
 
+add_executable(test_Fields
+    CFDSolver/tests/test_fields.cpp
+    CFDSolver/src/mesh/mesh2D.cpp
+)
+
+target_link_libraries(test_Fields PRIVATE CFDCore)
+
+add_test(NAME FieldsTest COMMAND test_Fields)
+
+add_executable(tests_BC
+    CFDSolver/tests/test_BC.cpp
+    CFDSolver/src/BCs/BC.cpp
+)
+
+target_include_directories(tests_BC
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/CFDSolver/src
+)
+
 if(BUILD_UI)
     find_package(glfw3 CONFIG REQUIRED)
     find_package(glad  CONFIG REQUIRED)
