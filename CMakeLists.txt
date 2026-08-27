@@ -54,6 +54,19 @@ target_include_directories(tests_BC
         ${CMAKE_SOURCE_DIR}/CFDSolver/src
 )
 
+add_executable(test_BiCGSTAB
+    CFDSolver/tests/test_BiCGSTAB.cpp
+    CFDSolver/src/linearAlgebra/Vector.hpp
+    CFDSolver/src/linearAlgebra/SparseMatrix.hpp
+    CFDSolver/src/linearAlgebra/BiCGSTAB.h
+)
+
+target_link_libraries(test_BiCGSTAB
+    PRIVATE CFDCore
+)
+
+add_test(NAME BiCGSTABTest COMMAND test_BiCGSTAB)
+
 if(BUILD_UI)
     find_package(glfw3 CONFIG REQUIRED)
     find_package(glad  CONFIG REQUIRED)
