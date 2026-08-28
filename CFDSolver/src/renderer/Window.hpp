@@ -96,6 +96,91 @@ namespace CFD {
 
         int width()  const { return width_; }
         int height() const { return height_; }
+         
+
+        // Call this when About is clicked
+        void openAbout() { showAbout_ = true; }
+
+        // Call this every frame in your render loop
+        void renderAbout() {
+            if (!showAbout_) return;
+
+            // Centre the popup on screen
+            ImGui::SetNextWindowPos(
+                ImVec2(width_ * 0.5f,
+                    height_ * 0.5f),
+                ImGuiCond_Always,
+                ImVec2(0.5f, 0.5f));
+
+            ImGui::SetNextWindowSize(
+                ImVec2(450, 320),
+                ImGuiCond_Always);
+
+            // CORRECT:
+            ImGui::Begin("About CFD Solver",
+                &showAbout_,
+                ImGuiWindowFlags_NoResize |
+                ImGuiWindowFlags_NoMove);
+
+            // ── Logo / Title ──────────────────────────
+            ImGui::SetCursorPosX(
+                (450 - ImGui::CalcTextSize(
+                    "CFD Solver").x) * 0.5f);
+            ImGui::TextColored(
+                { 0.4f, 0.65f, 1.0f, 1.0f },
+                "CFD Solver");
+
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ── Info ──────────────────────────────────
+            ImGui::Text("Version:     0.1.0");
+            ImGui::Text("Build:       x64-Debug");
+            ImGui::Spacing();
+
+            
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ── Team ──────────────────────────────────
+            ImGui::TextColored(
+                { 0.4f, 0.65f, 1.0f, 1.0f },
+                "Development Team");
+            ImGui::Spacing();
+            ImGui::Text("Irvin    - Core Solver & Numerics");
+            ImGui::Text("Alex&Irvin - OpenGL Visualisation");
+            ImGui::Text("Alex - Mesh & IO");
+            ImGui::Text("Mack - Navier-Stokes");
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ── Description ───────────────────────────
+            ImGui::TextWrapped(
+                "A high-performance CFD solver "
+                "built from scratch in C++17. "
+                "Solving heat diffusion and "
+                "Navier-Stokes equations using "
+                "the Finite Volume Method.");
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ── Close button ──────────────────────────
+            float buttonWidth = 120.0f;
+            ImGui::SetCursorPosX(
+                (450 - buttonWidth) * 0.5f);
+
+            if (ImGui::Button("Close",
+                ImVec2(buttonWidth, 30)))
+                showAbout_ = false;
+
+            ImGui::End();
+        }
 
         // ── Cleanup ───────────────────────────────────────────────
         void cleanup() {
@@ -110,6 +195,7 @@ namespace CFD {
         GLFWwindow* window_ = nullptr;
         int         width_, height_;
         std::string title_;
+        bool        showAbout_ = false; // ← ADD THIS
 
         void applyStyle() {
             ImGuiStyle& s = ImGui::GetStyle();

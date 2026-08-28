@@ -34,25 +34,19 @@ int main() {
             if (ImGui::BeginMenu("File")) {
                 ImGui::MenuItem("New");
                 ImGui::MenuItem("Open");
-                ImGui::MenuItem("Save");
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit"))
                     break;
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Physics")) {
-                ImGui::MenuItem(
-                    "Heat Diffusion");
-                ImGui::MenuItem(
-                    "Navier-Stokes");
-                ImGui::EndMenu();
-            }
             if (ImGui::BeginMenu("Help")) {
-                ImGui::MenuItem("About");
+                if (ImGui::MenuItem("About"))
+                    window.openAbout();
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
         }
+        window.renderAbout();  // ← is this here??
 
         // ── Left toolbar ──────────────────────
         ImGui::SetNextWindowPos({ 0, 20 });
