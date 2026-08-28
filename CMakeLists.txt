@@ -67,6 +67,19 @@ target_link_libraries(test_BiCGSTAB
 
 add_test(NAME BiCGSTABTest COMMAND test_BiCGSTAB)
 
+add_executable(test_SIMPLE
+    CFDSolver/tests/test_SIMPLE.cpp
+    CFDSolver/src/solvers/SIMPLE.cpp
+    CFDSolver/src/mesh/mesh2D.cpp
+    CFDSolver/src/BCs/BC.cpp
+)
+
+target_link_libraries(test_SIMPLE
+    PRIVATE CFDCore
+)
+
+add_test(NAME SIMPLETest COMMAND test_SIMPLE)
+
 if(BUILD_UI)
     find_package(glfw3 CONFIG REQUIRED)
     find_package(glad  CONFIG REQUIRED)

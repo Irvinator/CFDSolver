@@ -6,7 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
-
+// method to solve non symettric matrices used for solving momentum transport equations in SIMPLE algorithm
     int main()
     {
         try
