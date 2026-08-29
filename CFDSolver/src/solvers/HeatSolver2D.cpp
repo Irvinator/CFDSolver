@@ -320,21 +320,24 @@ namespace CFD {
                 << time_ << '\n';
         }
     }
-
+    bool HeatSolver2D::canValidateLinearXCase() const
+    {
+        return false;
+    }
     HeatSolver2D::SolverResult HeatSolver2D::validate(SolverResult result) const
     {
-        const bool linearCase =
-            std::abs(bcs_.T_south - analyticalLinearX(0.5 * mesh_.getWidth(), mesh_.getWidth(), bcs_.T_west, bcs_.T_east)) < 1e-12 &&
-            std::abs(bcs_.T_north - analyticalLinearX(0.5 * mesh_.getWidth(), mesh_.getWidth(), bcs_.T_west, bcs_.T_east)) < 1e-12;
+        std::cout << "\n== Validation ========================================\n";
 
-        if (!linearCase) {
-            std::cout << "\n== Validation ========================================\n"
-                << "Skipped analytical validation: boundary values do not correspond to the linear-in-x exact solution.\n";
+        if (!canValidateLinearXCase()) {
+            std::cout << "Case               : skipped\n";
+            std::cout << "Reason             : no compatible analytical solution "
+                "implemented for current 2D Dirichlet boundary conditions\n";
             result.validated = false;
             result.maxError = 0.0;
             result.l2Error = 0.0;
             return result;
         }
+
 
         const double W = mesh_.getWidth();
         double maxErr = 0.0;

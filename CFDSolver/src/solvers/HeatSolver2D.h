@@ -82,6 +82,7 @@ namespace CFD {
         void step(ConjugateGradient& cg, std::vector<int>& cgIters);
 
         SolverResult validate(SolverResult result) const;
+        bool canValidateLinearXCase() const;
         void printSetup() const;
         void printProgress(int cgIters, double cgResidual) const;
     };

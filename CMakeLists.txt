@@ -39,6 +39,13 @@ add_executable(test_heat_diffusion2D
 
 target_link_libraries(test_heat_diffusion2D PRIVATE CFDCore)
 
+add_executable(heat_diffusion_2D
+    CFDSolver/examples/heat_diffusion_2D.cpp
+    CFDSolver/src/solvers/HeatSolver2D.cpp
+    CFDSolver/src/mesh/mesh2D.cpp
+)
+target_link_libraries(heat_diffusion_2D PRIVATE CFDCore)
+
 add_test(NAME HeatDiffusion2DTest COMMAND test_heat_diffusion2D)
 
 add_executable(heat_diffusion_1D
