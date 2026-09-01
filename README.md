@@ -155,5 +155,4 @@ README files are intended to help users get started quickly, while deeper docume
 
 Repository: [Irvinator/CFDSolver](https://github.com/Irvinator/CFDSolver)
 
-- references and numerical background.
 
