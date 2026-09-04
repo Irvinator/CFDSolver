@@ -932,7 +932,7 @@ int main()
             // Run exactly one SIMPLE iteration
             // ----------------------------------------------------
 
-            simple.setMaxIterations(1);
+            simple.setMaxIterations(100);
 
             simple.solve();
 
@@ -1086,6 +1086,7 @@ int main()
     catch (const std::exception& e)
     {
         std::cerr << "\n";
+
         std::cerr
             << "============================================================\n"
             << "TEST FAILED WITH EXCEPTION\n"
