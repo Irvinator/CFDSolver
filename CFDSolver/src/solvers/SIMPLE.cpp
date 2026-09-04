@@ -1,4 +1,3 @@
-
 #include "solvers/SIMPLE.h"
 
 #include "linearAlgebra/BiCGSTAB.h"
@@ -8,8 +7,8 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
-
 
 namespace CFD
 {
@@ -18,85 +17,70 @@ namespace CFD
     {
         constexpr double SMALL = 1.0e-14;
 
+        constexpr double MAX_VELOCITY =
+            10.0;
 
-        bool isFixedU(
-            const Mesh::Cell& cell,
-            const BoundaryCondition& northBC,
-            const BoundaryCondition& southBC,
-            const BoundaryCondition& westBC)
+        constexpr double MAX_PRESSURE_CORRECTION =
+            1.0;
+
+
+        double getMatrixDiagonal(
+            const SparseMatrix& matrix,
+            std::size_t P)
         {
-            if (cell.north == -1 &&
-                northBC.getType() == BoundaryType::Wall &&
-                northBC.hasU())
+            for (std::size_t k = matrix.rowPtr()[P];
+                k < matrix.rowPtr()[P + 1];
+                ++k)
             {
-                return true;
+                if (matrix.colIndices()[k] == P)
+                {
+                    return matrix.values()[k];
+                }
             }
 
-            if (cell.south == -1 &&
-                southBC.getType() == BoundaryType::Wall &&
-                southBC.hasU())
-            {
-                return true;
-            }
-
-            if (cell.west == -1 &&
-                westBC.getType() == BoundaryType::Inlet &&
-                westBC.hasU())
-            {
-                return true;
-            }
-
-            return false;
+            return 0.0;
         }
 
 
-        bool isFixedV(
-            const Mesh::Cell& cell,
-            const BoundaryCondition& northBC,
-            const BoundaryCondition& southBC,
-            const BoundaryCondition& westBC)
+        double requirePositiveDiagonal(
+            const SparseMatrix& matrix,
+            std::size_t P,
+            const char* equation)
         {
-            if (cell.north == -1 &&
-                northBC.getType() == BoundaryType::Wall &&
-                northBC.hasV())
-            {
-                return true;
-            }
+            const double value =
+                getMatrixDiagonal(matrix, P);
 
-            if (cell.south == -1 &&
-                southBC.getType() == BoundaryType::Wall &&
-                southBC.hasV())
-            {
-                return true;
-            }
-
-            if (cell.west == -1 &&
-                westBC.getType() == BoundaryType::Inlet &&
-                westBC.hasV())
-            {
-                return true;
-            }
-
-            return false;
-        }
-
-
-        double safeDiagonal(double value)
-        {
             if (!std::isfinite(value) ||
-                std::abs(value) < SMALL)
+                value <= SMALL)
             {
-                return SMALL;
+                throw std::runtime_error(
+                    std::string("SIMPLE: invalid ") +
+                    equation +
+                    " diagonal at cell " +
+                    std::to_string(P));
             }
 
             return value;
         }
+
+
+        double limitPressureCorrection(
+            double value)
+        {
+            if (!std::isfinite(value))
+            {
+                throw std::runtime_error(
+                    "SIMPLE: non-finite pressure correction");
+            }
+
+            return std::max(
+                -MAX_PRESSURE_CORRECTION,
+                std::min(
+                    MAX_PRESSURE_CORRECTION,
+                    value));
+        }
     }
 
-
-    // ================================================================
-    // CONSTRUCTOR
-    // ================================================================
 
     SIMPLE::SIMPLE(
         Mesh& mesh,
@@ -115,10 +99,6 @@ namespace CFD
     {
     }
 
-
-    // ================================================================
-    // SETTERS
-    // ================================================================
 
     void SIMPLE::setPressureRelaxation(double value)
     {
@@ -186,10 +166,6 @@ namespace CFD
     }
 
 
-    // ================================================================
-    // GETTERS
-    // ================================================================
-
     double SIMPLE::getPressureRelaxation() const
     {
         return relaxationPressure;
@@ -220,10 +196,6 @@ namespace CFD
     }
 
 
-    // ================================================================
-    // SOLVER STATE GETTERS
-    // ================================================================
-
     std::size_t SIMPLE::getIteration() const
     {
         return iteration;
@@ -236,148 +208,62 @@ namespace CFD
     }
 
 
-    // ================================================================
-    // APPLY BOUNDARY CONDITIONS
-    // ================================================================
-
     void SIMPLE::applyBoundaryConditions()
     {
         const std::size_t n =
             mesh.numberOfCells();
+
+
+        /*
+            Velocity boundary conditions are imposed on faces,
+            not directly on cell-centred velocity values.
+
+            Pressure boundary conditions are stored at the
+            boundary cells because pressure is cell centred.
+        */
 
         for (std::size_t P = 0;
             P < n;
             ++P)
         {
             const auto& cell =
-                mesh.getCell(static_cast<int>(P));
+                mesh.getCell(
+                    static_cast<int>(P));
 
 
-            // --------------------------------------------------------
-            // WEST
-            // --------------------------------------------------------
-
-            if (cell.westBoundary)
+            if (cell.westBoundary &&
+                westBC.hasPressure())
             {
-                if (westBC.hasU())
-                {
-                    fields.velocity.getx()[P] =
-                        westBC.getU();
-                }
-
-                if (westBC.hasV())
-                {
-                    fields.velocity.gety()[P] =
-                        westBC.getV();
-                }
-
-                if (westBC.hasPressure())
-                {
-                    fields.pressure[P] =
-                        westBC.getPressure();
-                }
+                fields.pressure[P] =
+                    westBC.getPressure();
             }
 
 
-            // --------------------------------------------------------
-            // EAST
-            // --------------------------------------------------------
-
-            if (cell.eastBoundary)
+            if (cell.eastBoundary &&
+                eastBC.hasPressure())
             {
-                if (eastBC.hasU())
-                {
-                    fields.velocity.getx()[P] =
-                        eastBC.getU();
-                }
-
-                if (eastBC.hasV())
-                {
-                    fields.velocity.gety()[P] =
-                        eastBC.getV();
-                }
-
-                if (eastBC.hasPressure())
-                {
-                    fields.pressure[P] =
-                        eastBC.getPressure();
-                }
+                fields.pressure[P] =
+                    eastBC.getPressure();
             }
 
 
-            // --------------------------------------------------------
-            // NORTH
-            //
-            // Wall takes precedence over inlet/outlet at a corner.
-            // --------------------------------------------------------
-
-            if (cell.northBoundary)
+            if (cell.northBoundary &&
+                northBC.hasPressure())
             {
-                if (northBC.hasU())
-                {
-                    fields.velocity.getx()[P] =
-                        northBC.getU();
-                }
-
-                if (northBC.hasV())
-                {
-                    fields.velocity.gety()[P] =
-                        northBC.getV();
-                }
-
-                if (northBC.hasPressure())
-                {
-                    fields.pressure[P] =
-                        northBC.getPressure();
-                }
+                fields.pressure[P] =
+                    northBC.getPressure();
             }
 
 
-            // --------------------------------------------------------
-            // SOUTH
-            // --------------------------------------------------------
-
-            if (cell.southBoundary)
+            if (cell.southBoundary &&
+                southBC.hasPressure())
             {
-                if (southBC.hasU())
-                {
-                    fields.velocity.getx()[P] =
-                        southBC.getU();
-                }
-
-                if (southBC.hasV())
-                {
-                    fields.velocity.gety()[P] =
-                        southBC.getV();
-                }
-
-                if (southBC.hasPressure())
-                {
-                    fields.pressure[P] =
-                        southBC.getPressure();
-                }
+                fields.pressure[P] =
+                    southBC.getPressure();
             }
         }
     }
 
-
-    // ================================================================
-    // CALCULATE FACE FLUXES
-    //
-    // Sign convention:
-    //
-    // fluxEast  = positive velocity in +x direction
-    // fluxWest  = positive velocity in +x direction
-    // fluxNorth = positive velocity in +y direction
-    // fluxSouth = positive velocity in +y direction
-    //
-    // Therefore:
-    //
-    // continuity residual =
-    //
-    //     Fe - Fw + Fn - Fs
-    //
-    // ================================================================
 
     void SIMPLE::calculateFaceFluxes()
     {
@@ -396,8 +282,6 @@ namespace CFD
         const double An =
             mesh.northSouthFaceArea();
 
-        std::cout << "\nINLET FACE FLUXES\n";
-
 
         for (std::size_t j = 0;
             j < mesh.getNy();
@@ -411,212 +295,219 @@ namespace CFD
                     mesh.cellIndex(i, j);
 
                 const auto& cell =
-                    mesh.getCell(static_cast<int>(P));
+                    mesh.getCell(
+                        static_cast<int>(P));
 
 
-                // ----------------------------------------------------
-                // EAST FACE
-                // ----------------------------------------------------
+                /*
+                    EAST FACE
+                */
 
                 if (cell.east != -1)
                 {
-                    const double uP =
-                        fields.velocity.getx()[P];
-
-                    const double uE =
-                        fields.velocity.getx()[cell.east];
+                    const std::size_t E =
+                        static_cast<std::size_t>(
+                            cell.east);
 
                     const double uFace =
-                        0.5 * (uP + uE);
+                        0.5 *
+                        (
+                            fields.velocity.getx()[P] +
+                            fields.velocity.getx()[E]
+                            );
 
                     fluxEast[P] =
-                        rho * uFace * Ae;
+                        rho *
+                        uFace *
+                        Ae;
                 }
-                else
+                else if (
+                    eastBC.getType() ==
+                    BoundaryType::Wall)
                 {
-                    if (eastBC.getType() == BoundaryType::Wall)
-                    {
-                        fluxEast[P] = 0.0;
-                    }
-                    else if (eastBC.getType() == BoundaryType::Inlet)
-                    {
-                        fluxEast[P] =
-                            rho *
-                            eastBC.getU() *
-                            Ae;
-                    }
-                    else if (eastBC.getType() == BoundaryType::Outlet)
-                    {
-                        fluxEast[P] =
-                            rho *
-                            fields.velocity.getx()[P] *
-                            Ae;
-                    }
+                    fluxEast[P] = 0.0;
+                }
+                else if (
+                    eastBC.getType() ==
+                    BoundaryType::Inlet)
+                {
+                    fluxEast[P] =
+                        rho *
+                        eastBC.getU() *
+                        Ae;
+                }
+                else if (
+                    eastBC.getType() ==
+                    BoundaryType::Outlet)
+                {
+                    fluxEast[P] =
+                        rho *
+                        fields.velocity.getx()[P] *
+                        Ae;
                 }
 
 
-                // ----------------------------------------------------
-                // WEST FACE
-                // ----------------------------------------------------
+                /*
+                    WEST FACE
+                */
 
                 if (cell.west != -1)
                 {
-                    const double uP =
-                        fields.velocity.getx()[P];
-
-                    const double uW =
-                        fields.velocity.getx()[cell.west];
+                    const std::size_t W =
+                        static_cast<std::size_t>(
+                            cell.west);
 
                     const double uFace =
-                        0.5 * (uP + uW);
+                        0.5 *
+                        (
+                            fields.velocity.getx()[P] +
+                            fields.velocity.getx()[W]
+                            );
 
                     fluxWest[P] =
-                        rho * uFace * Ae;
+                        rho *
+                        uFace *
+                        Ae;
                 }
-                else
+                else if (
+                    westBC.getType() ==
+                    BoundaryType::Wall)
                 {
-                    if (westBC.getType() == BoundaryType::Wall)
-                    {
-                        fluxWest[P] = 0.0;
-                    }
-                    else if (westBC.getType() == BoundaryType::Inlet)
-                    {
-                        fluxWest[P] =
-                            rho *
-                            westBC.getU() *
-                            Ae;
-                    }
-                    else if (westBC.getType() == BoundaryType::Outlet)
-                    {
-                        fluxWest[P] =
-                            rho *
-                            fields.velocity.getx()[P] *
-                            Ae;
-                    }
+                    fluxWest[P] = 0.0;
+                }
+                else if (
+                    westBC.getType() ==
+                    BoundaryType::Inlet)
+                {
+                    fluxWest[P] =
+                        rho *
+                        westBC.getU() *
+                        Ae;
+                }
+                else if (
+                    westBC.getType() ==
+                    BoundaryType::Outlet)
+                {
+                    fluxWest[P] =
+                        rho *
+                        fields.velocity.getx()[P] *
+                        Ae;
                 }
 
 
-                // ----------------------------------------------------
-                // NORTH FACE
-                // ----------------------------------------------------
+                /*
+                    NORTH FACE
+                */
 
                 if (cell.north != -1)
                 {
-                    const double vP =
-                        fields.velocity.gety()[P];
-
-                    const double vN =
-                        fields.velocity.gety()[cell.north];
+                    const std::size_t N =
+                        static_cast<std::size_t>(
+                            cell.north);
 
                     const double vFace =
-                        0.5 * (vP + vN);
+                        0.5 *
+                        (
+                            fields.velocity.gety()[P] +
+                            fields.velocity.gety()[N]
+                            );
 
                     fluxNorth[P] =
-                        rho * vFace * An;
+                        rho *
+                        vFace *
+                        An;
                 }
-                else
+                else if (
+                    northBC.getType() ==
+                    BoundaryType::Wall)
                 {
-                    if (northBC.getType() == BoundaryType::Wall)
-                    {
-                        fluxNorth[P] = 0.0;
-                    }
-                    else if (northBC.getType() == BoundaryType::Inlet)
-                    {
-                        fluxNorth[P] =
-                            rho *
-                            northBC.getV() *
-                            An;
-                    }
-                    else if (northBC.getType() == BoundaryType::Outlet)
-                    {
-                        fluxNorth[P] =
-                            rho *
-                            fields.velocity.gety()[P] *
-                            An;
-                    }
+                    fluxNorth[P] = 0.0;
+                }
+                else if (
+                    northBC.getType() ==
+                    BoundaryType::Inlet)
+                {
+                    fluxNorth[P] =
+                        rho *
+                        northBC.getV() *
+                        An;
+                }
+                else if (
+                    northBC.getType() ==
+                    BoundaryType::Outlet)
+                {
+                    fluxNorth[P] =
+                        rho *
+                        fields.velocity.gety()[P] *
+                        An;
                 }
 
 
-                // ----------------------------------------------------
-                // SOUTH FACE
-                // ----------------------------------------------------
+                /*
+                    SOUTH FACE
+                */
 
                 if (cell.south != -1)
                 {
-                    const double vP =
-                        fields.velocity.gety()[P];
-
-                    const double vS =
-                        fields.velocity.gety()[cell.south];
+                    const std::size_t S =
+                        static_cast<std::size_t>(
+                            cell.south);
 
                     const double vFace =
-                        0.5 * (vP + vS);
+                        0.5 *
+                        (
+                            fields.velocity.gety()[P] +
+                            fields.velocity.gety()[S]
+                            );
 
                     fluxSouth[P] =
-                        rho * vFace * An;
+                        rho *
+                        vFace *
+                        An;
                 }
-                else
+                else if (
+                    southBC.getType() ==
+                    BoundaryType::Wall)
                 {
-                    if (southBC.getType() == BoundaryType::Wall)
-                    {
-                        fluxSouth[P] = 0.0;
-                    }
-                    else if (southBC.getType() == BoundaryType::Inlet)
-                    {
-                        fluxSouth[P] =
-                            rho *
-                            southBC.getV() *
-                            An;
-                    }
-                    else if (southBC.getType() == BoundaryType::Outlet)
-                    {
-                        fluxSouth[P] =
-                            rho *
-                            fields.velocity.gety()[P] *
-                            An;
-                    }
+                    fluxSouth[P] = 0.0;
+                }
+                else if (
+                    southBC.getType() ==
+                    BoundaryType::Inlet)
+                {
+                    fluxSouth[P] =
+                        rho *
+                        southBC.getV() *
+                        An;
+                }
+                else if (
+                    southBC.getType() ==
+                    BoundaryType::Outlet)
+                {
+                    fluxSouth[P] =
+                        rho *
+                        fields.velocity.gety()[P] *
+                        An;
+                }
+
+
+                if (!std::isfinite(fluxEast[P]) ||
+                    !std::isfinite(fluxWest[P]) ||
+                    !std::isfinite(fluxNorth[P]) ||
+                    !std::isfinite(fluxSouth[P]))
+                {
+                    throw std::runtime_error(
+                        "SIMPLE: non-finite face flux");
                 }
             }
         }
     }
 
 
-    // ================================================================
-    // ASSEMBLE U MOMENTUM
-    //
-    // First-order upwind:
-    //
-    // aE = De + max(-Fe, 0)
-    // aW = Dw + max( Fw, 0)
-    // aN = Dn + max(-Fn, 0)
-    // aS = Ds + max( Fs, 0)
-    //
-    // The diagonal contains the net convection contribution:
-    //
-    // aP =
-    //     aE + aW + aN + aS
-    //     + Fe - Fw + Fn - Fs
-    //
-    // This is important because continuity is NOT satisfied during
-    // the momentum solve.
-    // ================================================================
-
     void SIMPLE::assembleUMomentum()
     {
         const std::size_t n =
             mesh.numberOfCells();
-
-        std::vector<std::size_t> rows;
-        std::vector<std::size_t> cols;
-        std::vector<double> values;
-
-        uRHS =
-            Vector(n, 0.0);
-
-        rows.reserve(5 * n);
-        cols.reserve(5 * n);
-        values.reserve(5 * n);
-
 
         const double dx =
             mesh.getDx();
@@ -631,6 +522,31 @@ namespace CFD
             mesh.northSouthFaceArea();
 
 
+        const double De =
+            mu * Ae / dx;
+
+        const double Dw =
+            mu * Ae / dx;
+
+        const double Dn =
+            mu * An / dy;
+
+        const double Ds =
+            mu * An / dy;
+
+
+        std::vector<std::size_t> rows;
+        std::vector<std::size_t> cols;
+        std::vector<double> values;
+
+        rows.reserve(5 * n);
+        cols.reserve(5 * n);
+        values.reserve(5 * n);
+
+        uRHS =
+            Vector(n, 0.0);
+
+
         for (std::size_t j = 0;
             j < mesh.getNy();
             ++j)
@@ -643,82 +559,22 @@ namespace CFD
                     mesh.cellIndex(i, j);
 
                 const auto& cell =
-                    mesh.getCell(static_cast<int>(P));
+                    mesh.getCell(
+                        static_cast<int>(P));
 
 
-                // ----------------------------------------------------
-                // Fixed velocity cells
-                // ----------------------------------------------------
+                const double Fe =
+                    fluxEast[P];
 
-                if (isFixedU(
-                    cell,
-                    northBC,
-                    southBC,
-                    westBC))
-                {
-                    rows.push_back(P);
-                    cols.push_back(P);
-                    values.push_back(1.0);
+                const double Fw =
+                    fluxWest[P];
 
-                    double value = 0.0;
+                const double Fn =
+                    fluxNorth[P];
 
-                    if (cell.west == -1 &&
-                        westBC.getType() == BoundaryType::Inlet &&
-                        westBC.hasU())
-                    {
-                        value = westBC.getU();
-                    }
+                const double Fs =
+                    fluxSouth[P];
 
-                    if (cell.north == -1 &&
-                        northBC.getType() == BoundaryType::Wall &&
-                        northBC.hasU())
-                    {
-                        value = northBC.getU();
-                    }
-
-                    if (cell.south == -1 &&
-                        southBC.getType() == BoundaryType::Wall &&
-                        southBC.hasU())
-                    {
-                        value = southBC.getU();
-                    }
-
-                    uRHS[P] = value;
-
-                    continue;
-                }
-
-
-                // ----------------------------------------------------
-                // Face mass fluxes
-                // ----------------------------------------------------
-
-                const double Fe = fluxEast[P];
-                const double Fw = fluxWest[P];
-                const double Fn = fluxNorth[P];
-                const double Fs = fluxSouth[P];
-
-
-                // ----------------------------------------------------
-                // Diffusion
-                // ----------------------------------------------------
-
-                const double De =
-                    mu * Ae / dx;
-
-                const double Dw =
-                    mu * Ae / dx;
-
-                const double Dn =
-                    mu * An / dy;
-
-                const double Ds =
-                    mu * An / dy;
-
-
-                // ----------------------------------------------------
-                // Upwind coefficients
-                // ----------------------------------------------------
 
                 double aE =
                     De +
@@ -737,57 +593,163 @@ namespace CFD
                     std::max(Fs, 0.0);
 
 
-                // ----------------------------------------------------
-                // Boundary faces do not couple to another unknown.
-                // ----------------------------------------------------
+                double source =
+                    0.0;
+
+
+                /*
+                    Physical boundary faces.
+
+                    A prescribed velocity is represented by
+                    a source contribution.
+
+                    The boundary is NOT turned into a fixed
+                    cell-centre velocity.
+                */
 
                 if (cell.east == -1)
-                    aE = 0.0;
+                {
+                    aE =
+                        2.0 * De +
+                        std::max(-Fe, 0.0);
+
+                    if (eastBC.getType() ==
+                        BoundaryType::Wall ||
+                        eastBC.getType() ==
+                        BoundaryType::Inlet)
+                    {
+                        source +=
+                            aE *
+                            eastBC.getU();
+                    }
+                    else if (
+                        eastBC.getType() ==
+                        BoundaryType::Outlet)
+                    {
+                        aE = 0.0;
+                    }
+                }
+
 
                 if (cell.west == -1)
-                    aW = 0.0;
+                {
+                    aW =
+                        2.0 * Dw +
+                        std::max(Fw, 0.0);
+
+                    if (westBC.getType() ==
+                        BoundaryType::Wall ||
+                        westBC.getType() ==
+                        BoundaryType::Inlet)
+                    {
+                        source +=
+                            aW *
+                            westBC.getU();
+                    }
+                    else if (
+                        westBC.getType() ==
+                        BoundaryType::Outlet)
+                    {
+                        aW = 0.0;
+                    }
+                }
+
 
                 if (cell.north == -1)
-                    aN = 0.0;
+                {
+                    aN =
+                        2.0 * Dn +
+                        std::max(-Fn, 0.0);
+
+                    if (northBC.getType() ==
+                        BoundaryType::Wall ||
+                        northBC.getType() ==
+                        BoundaryType::Inlet)
+                    {
+                        source +=
+                            aN *
+                            northBC.getU();
+                    }
+                    else if (
+                        northBC.getType() ==
+                        BoundaryType::Outlet)
+                    {
+                        aN = 0.0;
+                    }
+                }
+
 
                 if (cell.south == -1)
-                    aS = 0.0;
+                {
+                    aS =
+                        2.0 * Ds +
+                        std::max(Fs, 0.0);
+
+                    if (southBC.getType() ==
+                        BoundaryType::Wall ||
+                        southBC.getType() ==
+                        BoundaryType::Inlet)
+                    {
+                        source +=
+                            aS *
+                            southBC.getU();
+                    }
+                    else if (
+                        southBC.getType() ==
+                        BoundaryType::Outlet)
+                    {
+                        aS = 0.0;
+                    }
+                }
 
 
-                // ----------------------------------------------------
-                // Pressure source
-                //
-                //     (pW - pE) Ae
-                // ----------------------------------------------------
+                /*
+                    Pressure gradient.
 
-                double source = 0.0;
+                        (pW - pE) Ae
+                */
 
                 if (cell.west != -1)
                 {
                     source +=
-                        fields.pressure[cell.west] * Ae;
+                        fields.pressure[
+                            static_cast<std::size_t>(
+                                cell.west)] *
+                        Ae;
                 }
 
                 if (cell.east != -1)
                 {
                     source -=
-                        fields.pressure[cell.east] * Ae;
+                        fields.pressure[
+                            static_cast<std::size_t>(
+                                cell.east)] *
+                        Ae;
                 }
 
 
-                // ----------------------------------------------------
-                // Momentum diagonal
-                //
-                // Include net mass flux because continuity is not
-                // exactly satisfied while momentum is being solved.
-                // ----------------------------------------------------
+                /*
+                    IMPORTANT:
 
-                double aP =
+                    Do not include the current continuity defect
+                    in aP.
+
+                    The previous formulation:
+
+                        aP = sum(aNB) + imbalance
+
+                    allowed a large continuity error to produce
+                    a negative momentum diagonal.
+
+                    The momentum matrix must remain positive
+                    while SIMPLE drives the continuity error down.
+                */
+
+                const double aP =
                     aE +
                     aW +
                     aN +
-                    aS +
-                    (Fe - Fw + Fn - Fs);
+                    aS;
 
 
                 if (!std::isfinite(aP) ||
@@ -798,44 +760,51 @@ namespace CFD
                 }
 
 
-                // ----------------------------------------------------
-                // Matrix
-                // ----------------------------------------------------
-
                 rows.push_back(P);
                 cols.push_back(P);
                 values.push_back(aP);
 
 
                 if (cell.east != -1 &&
-                    aE > 0.0)
+                    aE > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.east);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.east));
                     values.push_back(-aE);
                 }
 
+
                 if (cell.west != -1 &&
-                    aW > 0.0)
+                    aW > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.west);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.west));
                     values.push_back(-aW);
                 }
 
+
                 if (cell.north != -1 &&
-                    aN > 0.0)
+                    aN > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.north);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.north));
                     values.push_back(-aN);
                 }
 
+
                 if (cell.south != -1 &&
-                    aS > 0.0)
+                    aS > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.south);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.south));
                     values.push_back(-aS);
                 }
 
@@ -856,16 +825,14 @@ namespace CFD
     }
 
 
-    // ================================================================
-    // SOLVE U MOMENTUM
-    // ================================================================
-
     void SIMPLE::solveUMomentum()
     {
         assembleUMomentum();
 
+
         const std::size_t n =
             mesh.numberOfCells();
+
 
         Vector uOld(n, 0.0);
         Vector uSolution(n, 0.0);
@@ -903,54 +870,37 @@ namespace CFD
         }
 
 
-        // ------------------------------------------------------------
-        // Under-relax
-        // ------------------------------------------------------------
-
         for (std::size_t P = 0;
             P < n;
             ++P)
         {
-            if (isFixedU(
-                mesh.getCell(static_cast<int>(P)),
-                northBC,
-                southBC,
-                westBC))
-            {
-                continue;
-            }
-
-            fields.velocity.getx()[P] =
+            const double uNew =
                 uOld[P] +
                 relaxationVelocity *
-                (uSolution[P] - uOld[P]);
+                (
+                    uSolution[P] -
+                    uOld[P]
+                    );
+
+
+            if (!std::isfinite(uNew) ||
+                std::abs(uNew) > MAX_VELOCITY)
+            {
+                throw std::runtime_error(
+                    "SIMPLE: unstable U velocity detected");
+            }
+
+
+            fields.velocity.getx()[P] =
+                uNew;
         }
-
-
-        applyBoundaryConditions();
     }
 
-
-    // ================================================================
-    // ASSEMBLE V MOMENTUM
-    // ================================================================
 
     void SIMPLE::assembleVMomentum()
     {
         const std::size_t n =
             mesh.numberOfCells();
-
-        std::vector<std::size_t> rows;
-        std::vector<std::size_t> cols;
-        std::vector<double> values;
-
-        vRHS =
-            Vector(n, 0.0);
-
-        rows.reserve(5 * n);
-        cols.reserve(5 * n);
-        values.reserve(5 * n);
-
 
         const double dx =
             mesh.getDx();
@@ -965,6 +915,31 @@ namespace CFD
             mesh.northSouthFaceArea();
 
 
+        const double De =
+            mu * Ae / dx;
+
+        const double Dw =
+            mu * Ae / dx;
+
+        const double Dn =
+            mu * An / dy;
+
+        const double Ds =
+            mu * An / dy;
+
+
+        std::vector<std::size_t> rows;
+        std::vector<std::size_t> cols;
+        std::vector<double> values;
+
+        rows.reserve(5 * n);
+        cols.reserve(5 * n);
+        values.reserve(5 * n);
+
+        vRHS =
+            Vector(n, 0.0);
+
+
         for (std::size_t j = 0;
             j < mesh.getNy();
             ++j)
@@ -977,78 +952,22 @@ namespace CFD
                     mesh.cellIndex(i, j);
 
                 const auto& cell =
-                    mesh.getCell(static_cast<int>(P));
+                    mesh.getCell(
+                        static_cast<int>(P));
 
 
-                // ----------------------------------------------------
-                // Fixed velocity cells
-                // ----------------------------------------------------
+                const double Fe =
+                    fluxEast[P];
 
-                if (isFixedV(
-                    cell,
-                    northBC,
-                    southBC,
-                    westBC))
-                {
-                    rows.push_back(P);
-                    cols.push_back(P);
-                    values.push_back(1.0);
+                const double Fw =
+                    fluxWest[P];
 
-                    double value = 0.0;
+                const double Fn =
+                    fluxNorth[P];
 
-                    if (cell.west == -1 &&
-                        westBC.getType() == BoundaryType::Inlet &&
-                        westBC.hasV())
-                    {
-                        value = westBC.getV();
-                    }
+                const double Fs =
+                    fluxSouth[P];
 
-                    if (cell.north == -1 &&
-                        northBC.getType() == BoundaryType::Wall &&
-                        northBC.hasV())
-                    {
-                        value = northBC.getV();
-                    }
-
-                    if (cell.south == -1 &&
-                        southBC.getType() == BoundaryType::Wall &&
-                        southBC.hasV())
-                    {
-                        value = southBC.getV();
-                    }
-
-                    vRHS[P] = value;
-
-                    continue;
-                }
-
-
-                const double Fe = fluxEast[P];
-                const double Fw = fluxWest[P];
-                const double Fn = fluxNorth[P];
-                const double Fs = fluxSouth[P];
-
-
-                // ----------------------------------------------------
-                // Diffusion
-                // ----------------------------------------------------
-
-                const double De =
-                    mu * Ae / dx;
-
-                const double Dw =
-                    mu * Ae / dx;
-
-                const double Dn =
-                    mu * An / dy;
-
-                const double Ds =
-                    mu * An / dy;
-
-
-                // ----------------------------------------------------
-                // Upwind coefficients
-                // ----------------------------------------------------
 
                 double aE =
                     De +
@@ -1067,50 +986,145 @@ namespace CFD
                     std::max(Fs, 0.0);
 
 
+                double source =
+                    0.0;
+
+
                 if (cell.east == -1)
-                    aE = 0.0;
+                {
+                    aE =
+                        2.0 * De +
+                        std::max(-Fe, 0.0);
+
+                    if (eastBC.getType() ==
+                        BoundaryType::Wall ||
+                        eastBC.getType() ==
+                        BoundaryType::Inlet)
+                    {
+                        source +=
+                            aE *
+                            eastBC.getV();
+                    }
+                    else if (
+                        eastBC.getType() ==
+                        BoundaryType::Outlet)
+                    {
+                        aE = 0.0;
+                    }
+                }
+
 
                 if (cell.west == -1)
-                    aW = 0.0;
+                {
+                    aW =
+                        2.0 * Dw +
+                        std::max(Fw, 0.0);
+
+                    if (westBC.getType() ==
+                        BoundaryType::Wall ||
+                        westBC.getType() ==
+                        BoundaryType::Inlet)
+                    {
+                        source +=
+                            aW *
+                            westBC.getV();
+                    }
+                    else if (
+                        westBC.getType() ==
+                        BoundaryType::Outlet)
+                    {
+                        aW = 0.0;
+                    }
+                }
+
 
                 if (cell.north == -1)
-                    aN = 0.0;
+                {
+                    aN =
+                        2.0 * Dn +
+                        std::max(-Fn, 0.0);
+
+                    if (northBC.getType() ==
+                        BoundaryType::Wall ||
+                        northBC.getType() ==
+                        BoundaryType::Inlet)
+                    {
+                        source +=
+                            aN *
+                            northBC.getV();
+                    }
+                    else if (
+                        northBC.getType() ==
+                        BoundaryType::Outlet)
+                    {
+                        aN = 0.0;
+                    }
+                }
+
 
                 if (cell.south == -1)
-                    aS = 0.0;
+                {
+                    aS =
+                        2.0 * Ds +
+                        std::max(Fs, 0.0);
+
+                    if (southBC.getType() ==
+                        BoundaryType::Wall ||
+                        southBC.getType() ==
+                        BoundaryType::Inlet)
+                    {
+                        source +=
+                            aS *
+                            southBC.getV();
+                    }
+                    else if (
+                        southBC.getType() ==
+                        BoundaryType::Outlet)
+                    {
+                        aS = 0.0;
+                    }
+                }
 
 
-                // ----------------------------------------------------
-                // Pressure source
-                //
-                //     (pS - pN) An
-                // ----------------------------------------------------
+                /*
+                    Pressure gradient:
 
-                double source = 0.0;
+                        (pS - pN) An
+                */
 
                 if (cell.south != -1)
                 {
                     source +=
-                        fields.pressure[cell.south] * An;
+                        fields.pressure[
+                            static_cast<std::size_t>(
+                                cell.south)] *
+                        An;
                 }
 
                 if (cell.north != -1)
                 {
                     source -=
-                        fields.pressure[cell.north] * An;
+                        fields.pressure[
+                            static_cast<std::size_t>(
+                                cell.north)] *
+                        An;
                 }
 
 
-                // ----------------------------------------------------
-                // Diagonal
-                // ----------------------------------------------------
+                /*
+                    Keep the momentum diagonal positive.
+
+                    The continuity equation is corrected by the
+                    pressure-correction equation rather than by
+                    allowing a temporary mass imbalance to make
+                    aP negative.
+                */
 
                 const double aP =
                     aE +
                     aW +
                     aN +
-                    aS +
-                    (Fe - Fw + Fn - Fs);
+                    aS;
 
 
                 if (!std::isfinite(aP) ||
@@ -1121,44 +1135,51 @@ namespace CFD
                 }
 
 
-                // ----------------------------------------------------
-                // Matrix
-                // ----------------------------------------------------
-
                 rows.push_back(P);
                 cols.push_back(P);
                 values.push_back(aP);
 
 
                 if (cell.east != -1 &&
-                    aE > 0.0)
+                    aE > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.east);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.east));
                     values.push_back(-aE);
                 }
 
+
                 if (cell.west != -1 &&
-                    aW > 0.0)
+                    aW > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.west);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.west));
                     values.push_back(-aW);
                 }
 
+
                 if (cell.north != -1 &&
-                    aN > 0.0)
+                    aN > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.north);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.north));
                     values.push_back(-aN);
                 }
 
+
                 if (cell.south != -1 &&
-                    aS > 0.0)
+                    aS > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.south);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.south));
                     values.push_back(-aS);
                 }
 
@@ -1179,16 +1200,14 @@ namespace CFD
     }
 
 
-    // ================================================================
-    // SOLVE V MOMENTUM
-    // ================================================================
-
     void SIMPLE::solveVMomentum()
     {
         assembleVMomentum();
 
+
         const std::size_t n =
             mesh.numberOfCells();
+
 
         Vector vOld(n, 0.0);
         Vector vSolution(n, 0.0);
@@ -1230,97 +1249,33 @@ namespace CFD
             P < n;
             ++P)
         {
-            if (isFixedV(
-                mesh.getCell(static_cast<int>(P)),
-                northBC,
-                southBC,
-                westBC))
-            {
-                continue;
-            }
-
-            fields.velocity.gety()[P] =
+            const double vNew =
                 vOld[P] +
                 relaxationVelocity *
-                (vSolution[P] - vOld[P]);
-        }
+                (
+                    vSolution[P] -
+                    vOld[P]
+                    );
 
 
-        applyBoundaryConditions();
-    }
-
-
-    // ================================================================
-    // GET MOMENTUM DIAGONAL
-    //
-    // Extract the actual diagonal coefficient from the matrix.
-    // This deliberately does NOT use the identity coefficient of a
-    // prescribed velocity cell as a physical SIMPLE coefficient.
-    // ================================================================
-
-    static double getDiagonal(
-        const SparseMatrix& matrix,
-        std::size_t P)
-    {
-        for (std::size_t k =
-            matrix.rowPtr()[P];
-            k <
-            matrix.rowPtr()[P + 1];
-            ++k)
-        {
-            if (matrix.colIndices()[k] == P)
+            if (!std::isfinite(vNew) ||
+                std::abs(vNew) > MAX_VELOCITY)
             {
-                return matrix.values()[k];
+                throw std::runtime_error(
+                    "SIMPLE: unstable V velocity detected");
             }
-        }
 
-        return 0.0;
+
+            fields.velocity.gety()[P] =
+                vNew;
+        }
     }
 
-
-    // ================================================================
-    // ASSEMBLE PRESSURE CORRECTION
-    //
-    // The pressure correction is derived from the velocity response:
-    //
-    //     u' = d_u (p'_W - p'_E)
-    //
-    //     v' = d_v (p'_S - p'_N)
-    //
-    // where
-    //
-    //     d_u = Ae / aPu
-    //     d_v = An / aPv
-    //
-    // For an internal face, the coefficient is based on the momentum
-    // sensitivity of the cells adjacent to that face.
-    //
-    // For a face touching a fixed-velocity boundary, there is no
-    // velocity response from that boundary side, so the pressure
-    // correction is not allowed to alter that prescribed velocity.
-    //
-    // Walls therefore have zero pressure-correction flux.
-    //
-    // At an outlet, the outlet pressure correction is fixed to zero,
-    // while the outlet velocity is allowed to respond.
-    // ================================================================
 
     void SIMPLE::assemblePressureCorrection()
     {
         const std::size_t n =
             mesh.numberOfCells();
-
-        std::vector<std::size_t> rows;
-        std::vector<std::size_t> cols;
-        std::vector<double> values;
-
-        pressureRHS =
-            Vector(n, 0.0);
-
-        rows.reserve(5 * n);
-        cols.reserve(5 * n);
-        values.reserve(5 * n);
-
 
         const double Ae =
             mesh.eastWestFaceArea();
@@ -1329,135 +1284,106 @@ namespace CFD
             mesh.northSouthFaceArea();
 
 
-        // ------------------------------------------------------------
-        // Momentum diagonals
-        // ------------------------------------------------------------
+        std::vector<std::size_t> rows;
+        std::vector<std::size_t> cols;
+        std::vector<double> values;
 
-        std::vector<double> aPu(n, SMALL);
-        std::vector<double> aPv(n, SMALL);
+        rows.reserve(5 * n);
+        cols.reserve(5 * n);
+        values.reserve(5 * n);
 
-        std::vector<bool> fixedU(n, false);
-        std::vector<bool> fixedV(n, false);
+
+        pressureRHS =
+            Vector(n, 0.0);
+
+
+        /*
+            SIMPLE d coefficients.
+
+                dU = alpha_u Ae / aPu
+                dV = alpha_v An / aPv
+        */
+
+        std::vector<double> dU(n, 0.0);
+        std::vector<double> dV(n, 0.0);
 
 
         for (std::size_t P = 0;
             P < n;
             ++P)
         {
-            const auto& cell =
-                mesh.getCell(static_cast<int>(P));
+            const double aPu =
+                requirePositiveDiagonal(
+                    uMatrix,
+                    P,
+                    "U-momentum");
 
-            fixedU[P] =
-                isFixedU(
-                    cell,
-                    northBC,
-                    southBC,
-                    westBC);
-
-            fixedV[P] =
-                isFixedV(
-                    cell,
-                    northBC,
-                    southBC,
-                    westBC);
+            const double aPv =
+                requirePositiveDiagonal(
+                    vMatrix,
+                    P,
+                    "V-momentum");
 
 
-            if (!fixedU[P])
+            dU[P] =
+                relaxationVelocity *
+                Ae /
+                aPu;
+
+            dV[P] =
+                relaxationVelocity *
+                An /
+                aPv;
+
+
+            if (!std::isfinite(dU[P]) ||
+                !std::isfinite(dV[P]))
             {
-                aPu[P] =
-                    safeDiagonal(
-                        getDiagonal(uMatrix, P));
-            }
-
-            if (!fixedV[P])
-            {
-                aPv[P] =
-                    safeDiagonal(
-                        getDiagonal(vMatrix, P));
+                throw std::runtime_error(
+                    "SIMPLE: invalid SIMPLE coefficient");
             }
         }
 
 
-        // ------------------------------------------------------------
-        // Face coefficient helpers
-        // ------------------------------------------------------------
+        /*
+            Interior face coefficients.
+        */
 
         auto uFaceCoefficient =
             [&](std::size_t P,
-                std::size_t Q) -> double
+                std::size_t Q)
+            -> double
             {
-                if (fixedU[P] &&
-                    fixedU[Q])
-                {
-                    return 0.0;
-                }
-
-                if (fixedU[P])
-                {
-                    return rho * Ae * Ae / aPu[Q];
-                }
-
-                if (fixedU[Q])
-                {
-                    return rho * Ae * Ae / aPu[P];
-                }
-
-                // Harmonic-style sensitivity combination.
-                //
-                // The two momentum equations provide two velocity
-                // responses. Combining them through the sum of inverse
-                // diagonals gives a symmetric face coefficient.
-                const double sensitivity =
+                const double dFace =
                     0.5 *
                     (
-                        1.0 / aPu[P] +
-                        1.0 / aPu[Q]
+                        dU[P] +
+                        dU[Q]
                         );
 
                 return rho *
                     Ae *
-                    Ae *
-                    sensitivity;
+                    dFace;
             };
 
 
         auto vFaceCoefficient =
             [&](std::size_t P,
-                std::size_t Q) -> double
+                std::size_t Q)
+            -> double
             {
-                if (fixedV[P] &&
-                    fixedV[Q])
-                {
-                    return 0.0;
-                }
-
-                if (fixedV[P])
-                {
-                    return rho * An * An / aPv[Q];
-                }
-
-                if (fixedV[Q])
-                {
-                    return rho * An * An / aPv[P];
-                }
-
-                const double sensitivity =
+                const double dFace =
                     0.5 *
                     (
-                        1.0 / aPv[P] +
-                        1.0 / aPv[Q]
+                        dV[P] +
+                        dV[Q]
                         );
 
                 return rho *
                     An *
-                    An *
-                    sensitivity;
+                    dFace;
             };
 
-
-        // ------------------------------------------------------------
-        // Assemble one pressure equation per cell.
-        // ------------------------------------------------------------
 
         for (std::size_t j = 0;
             j < mesh.getNy();
@@ -1471,15 +1397,17 @@ namespace CFD
                     mesh.cellIndex(i, j);
 
                 const auto& cell =
-                    mesh.getCell(static_cast<int>(P));
+                    mesh.getCell(
+                        static_cast<int>(P));
 
 
-                // ----------------------------------------------------
-                // Pressure reference at outlet
-                // ----------------------------------------------------
+                /*
+                    East outlet provides the pressure reference.
+                */
 
                 if (cell.east == -1 &&
-                    eastBC.getType() == BoundaryType::Outlet &&
+                    eastBC.getType() ==
+                    BoundaryType::Outlet &&
                     eastBC.hasPressure())
                 {
                     rows.push_back(P);
@@ -1493,19 +1421,22 @@ namespace CFD
                 }
 
 
-                // ----------------------------------------------------
-                // Pressure-correction coefficients
-                // ----------------------------------------------------
+                double aE =
+                    0.0;
 
-                double aE = 0.0;
-                double aW = 0.0;
-                double aN = 0.0;
-                double aS = 0.0;
+                double aW =
+                    0.0;
+
+                double aN =
+                    0.0;
+
+                double aS =
+                    0.0;
 
 
-                // ----------------------------------------------------
-                // EAST
-                // ----------------------------------------------------
+                /*
+                    EAST
+                */
 
                 if (cell.east != -1)
                 {
@@ -1514,28 +1445,24 @@ namespace CFD
                             cell.east);
 
                     aE =
-                        uFaceCoefficient(P, E);
+                        uFaceCoefficient(
+                            P,
+                            E);
                 }
                 else if (
                     eastBC.getType() ==
                     BoundaryType::Outlet)
                 {
-                    // Outlet velocity is allowed to respond to
-                    // pressure correction.
-                    if (!fixedU[P])
-                    {
-                        aE =
-                            rho *
-                            Ae *
-                            Ae /
-                            aPu[P];
-                    }
+                    aE =
+                        rho *
+                        Ae *
+                        dU[P];
                 }
 
 
-                // ----------------------------------------------------
-                // WEST
-                // ----------------------------------------------------
+                /*
+                    WEST
+                */
 
                 if (cell.west != -1)
                 {
@@ -1544,19 +1471,15 @@ namespace CFD
                             cell.west);
 
                     aW =
-                        uFaceCoefficient(P, W);
-                }
-                else
-                {
-                    // Fixed inlet and wall velocities cannot be
-                    // pressure-corrected.
-                    aW = 0.0;
+                        uFaceCoefficient(
+                            P,
+                            W);
                 }
 
 
-                // ----------------------------------------------------
-                // NORTH
-                // ----------------------------------------------------
+                /*
+                    NORTH
+                */
 
                 if (cell.north != -1)
                 {
@@ -1565,18 +1488,24 @@ namespace CFD
                             cell.north);
 
                     aN =
-                        vFaceCoefficient(P, N);
+                        vFaceCoefficient(
+                            P,
+                            N);
                 }
-                else
+                else if (
+                    northBC.getType() ==
+                    BoundaryType::Outlet)
                 {
-                    // Wall velocity is fixed.
-                    aN = 0.0;
+                    aN =
+                        rho *
+                        An *
+                        dV[P];
                 }
 
 
-                // ----------------------------------------------------
-                // SOUTH
-                // ----------------------------------------------------
+                /*
+                    SOUTH
+                */
 
                 if (cell.south != -1)
                 {
@@ -1585,18 +1514,20 @@ namespace CFD
                             cell.south);
 
                     aS =
-                        vFaceCoefficient(P, S);
+                        vFaceCoefficient(
+                            P,
+                            S);
                 }
-                else
+                else if (
+                    southBC.getType() ==
+                    BoundaryType::Outlet)
                 {
-                    // Wall velocity is fixed.
-                    aS = 0.0;
+                    aS =
+                        rho *
+                        An *
+                        dV[P];
                 }
 
-
-                // ----------------------------------------------------
-                // Current continuity imbalance
-                // ----------------------------------------------------
 
                 const double imbalance =
                     fluxEast[P]
@@ -1604,18 +1535,6 @@ namespace CFD
                     + fluxNorth[P]
                     - fluxSouth[P];
 
-
-                // ----------------------------------------------------
-                // Pressure correction equation
-                //
-                //     aP p'P
-                //       - aE p'E
-                //       - aW p'W
-                //       - aN p'N
-                //       - aS p'S
-                //
-                //       = -R_P
-                // ----------------------------------------------------
 
                 const double aP =
                     aE +
@@ -1625,12 +1544,8 @@ namespace CFD
 
 
                 if (!std::isfinite(aP) ||
-                    aP < SMALL)
+                    aP <= SMALL)
                 {
-                    // A cell with no pressure coupling can only occur
-                    // when all its surrounding velocities are fixed.
-                    // Such a pressure correction is irrelevant, so
-                    // use a reference-style equation.
                     rows.push_back(P);
                     cols.push_back(P);
                     values.push_back(1.0);
@@ -1641,6 +1556,16 @@ namespace CFD
                     continue;
                 }
 
+
+                /*
+                    Pressure correction equation:
+
+                        aP p'P
+                        -
+                        sum(aNB p'NB)
+                        =
+                        -continuityError
+                */
 
                 pressureRHS[P] =
                     -imbalance;
@@ -1655,31 +1580,42 @@ namespace CFD
                     aE > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.east);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.east));
                     values.push_back(-aE);
                 }
+
 
                 if (cell.west != -1 &&
                     aW > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.west);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.west));
                     values.push_back(-aW);
                 }
+
 
                 if (cell.north != -1 &&
                     aN > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.north);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.north));
                     values.push_back(-aN);
                 }
+
 
                 if (cell.south != -1 &&
                     aS > SMALL)
                 {
                     rows.push_back(P);
-                    cols.push_back(cell.south);
+                    cols.push_back(
+                        static_cast<std::size_t>(
+                            cell.south));
                     values.push_back(-aS);
                 }
             }
@@ -1696,14 +1632,11 @@ namespace CFD
     }
 
 
-    // ================================================================
-    // SOLVE PRESSURE CORRECTION
-    // ================================================================
-
     void SIMPLE::solvePressureCorrection()
     {
         const std::size_t n =
             mesh.numberOfCells();
+
 
         pressureCorrection =
             Vector(n, 0.0);
@@ -1727,12 +1660,26 @@ namespace CFD
             throw std::runtime_error(
                 "SIMPLE: pressure correction solver failed to converge");
         }
+
+
+        /*
+            Limit pressure corrections before they can
+            destabilise the velocity field.
+
+            The physical pressure relaxation is still applied
+            separately in correctPressure().
+        */
+
+        for (std::size_t P = 0;
+            P < n;
+            ++P)
+        {
+            pressureCorrection[P] =
+                limitPressureCorrection(
+                    pressureCorrection[P]);
+        }
     }
 
-
-    // ================================================================
-    // CORRECT PRESSURE
-    // ================================================================
 
     void SIMPLE::correctPressure()
     {
@@ -1747,19 +1694,36 @@ namespace CFD
             fields.pressure[P] +=
                 relaxationPressure *
                 pressureCorrection[P];
+
+
+            if (!std::isfinite(
+                fields.pressure[P]))
+            {
+                throw std::runtime_error(
+                    "SIMPLE: non-finite pressure");
+            }
         }
 
 
-        // ------------------------------------------------------------
-        // Reapply physical pressure boundary conditions.
-        // ------------------------------------------------------------
+        /*
+            Reapply physical pressure boundary conditions.
+        */
 
         for (std::size_t P = 0;
             P < n;
             ++P)
         {
             const auto& cell =
-                mesh.getCell(static_cast<int>(P));
+                mesh.getCell(
+                    static_cast<int>(P));
+
+
+            if (cell.westBoundary &&
+                westBC.hasPressure())
+            {
+                fields.pressure[P] =
+                    westBC.getPressure();
+            }
 
 
             if (cell.eastBoundary &&
@@ -1769,12 +1733,6 @@ namespace CFD
                     eastBC.getPressure();
             }
 
-            if (cell.westBoundary &&
-                westBC.hasPressure())
-            {
-                fields.pressure[P] =
-                    westBC.getPressure();
-            }
 
             if (cell.northBoundary &&
                 northBC.hasPressure())
@@ -1782,6 +1740,7 @@ namespace CFD
                 fields.pressure[P] =
                     northBC.getPressure();
             }
+
 
             if (cell.southBoundary &&
                 southBC.hasPressure())
@@ -1793,28 +1752,10 @@ namespace CFD
     }
 
 
-    // ================================================================
-    // CORRECT VELOCITY
-    //
-    // The correction is based on the SAME momentum diagonals used
-    // when constructing the pressure-correction equation.
-    //
-    // U:
-    //
-    //     u' = Ae/aPu * (p'_W - p'_E)
-    //
-    // V:
-    //
-    //     v' = An/aPv * (p'_S - p'_N)
-    //
-    // Fixed velocity cells are never corrected.
-    // ================================================================
-
     void SIMPLE::correctVelocity()
     {
         const std::size_t n =
             mesh.numberOfCells();
-
 
         const double Ae =
             mesh.eastWestFaceArea();
@@ -1828,211 +1769,261 @@ namespace CFD
             ++P)
         {
             const auto& cell =
-                mesh.getCell(static_cast<int>(P));
+                mesh.getCell(
+                    static_cast<int>(P));
 
 
-            // --------------------------------------------------------
-            // U correction
-            // --------------------------------------------------------
+            const double aPu =
+                requirePositiveDiagonal(
+                    uMatrix,
+                    P,
+                    "U-momentum");
 
-            if (!isFixedU(
-                cell,
-                northBC,
-                southBC,
-                westBC))
+            const double aPv =
+                requirePositiveDiagonal(
+                    vMatrix,
+                    P,
+                    "V-momentum");
+
+
+            const double dU =
+                relaxationVelocity *
+                Ae /
+                aPu;
+
+            const double dV =
+                relaxationVelocity *
+                An /
+                aPv;
+
+
+            /*
+                U CORRECTION
+            */
+
+            double pPrimeW =
+                pressureCorrection[P];
+
+            double pPrimeE =
+                pressureCorrection[P];
+
+
+            /*
+                WEST FACE
+
+                Fixed velocity boundary:
+
+                    p'_face = p'_P
+
+                Outlet:
+
+                    p'_face = 0
+            */
+
+            if (cell.west != -1)
             {
-                const double aPu =
-                    safeDiagonal(
-                        getDiagonal(
-                            uMatrix,
-                            P));
-
-
-                double pPrimeW =
+                pPrimeW =
+                    pressureCorrection[
+                        static_cast<std::size_t>(
+                            cell.west)];
+            }
+            else if (
+                westBC.getType() ==
+                BoundaryType::Outlet)
+            {
+                pPrimeW = 0.0;
+            }
+            else
+            {
+                pPrimeW =
                     pressureCorrection[P];
-
-                double pPrimeE =
-                    pressureCorrection[P];
-
-
-                bool hasWest =
-                    cell.west != -1;
-
-                bool hasEast =
-                    cell.east != -1;
-
-
-                if (hasWest)
-                {
-                    pPrimeW =
-                        pressureCorrection[
-                            static_cast<std::size_t>(
-                                cell.west)];
-                }
-
-                if (hasEast)
-                {
-                    pPrimeE =
-                        pressureCorrection[
-                            static_cast<std::size_t>(
-                                cell.east)];
-                }
-                else if (
-                    eastBC.getType() ==
-                    BoundaryType::Outlet)
-                {
-                    // Outlet pressure correction is zero because the
-                    // outlet pressure is the reference.
-                    pPrimeE = 0.0;
-                }
-
-
-                // For a west boundary with prescribed inlet velocity,
-                // there is no velocity correction through that face.
-                //
-                // For an interior cell, use the pressure gradient.
-                if (hasWest)
-                {
-                    const double correction =
-                        (Ae / aPu) *
-                        (pPrimeW - pPrimeE);
-
-                    fields.velocity.getx()[P] +=
-                        relaxationVelocity *
-                        correction;
-                }
-                else if (hasEast &&
-                    eastBC.getType() ==
-                    BoundaryType::Outlet)
-                {
-                    const double correction =
-                        -(Ae / aPu) *
-                        pPrimeE;
-
-                    fields.velocity.getx()[P] +=
-                        relaxationVelocity *
-                        correction;
-                }
             }
 
 
-            // --------------------------------------------------------
-            // V correction
-            // --------------------------------------------------------
+            /*
+                EAST FACE
+            */
 
-            if (!isFixedV(
-                cell,
-                northBC,
-                southBC,
-                westBC))
+            if (cell.east != -1)
             {
-                const double aPv =
-                    safeDiagonal(
-                        getDiagonal(
-                            vMatrix,
-                            P));
-
-
-                double pPrimeS =
+                pPrimeE =
+                    pressureCorrection[
+                        static_cast<std::size_t>(
+                            cell.east)];
+            }
+            else if (
+                eastBC.getType() ==
+                BoundaryType::Outlet)
+            {
+                pPrimeE = 0.0;
+            }
+            else
+            {
+                pPrimeE =
                     pressureCorrection[P];
+            }
 
-                double pPrimeN =
+
+            double uCorrection =
+                dU *
+                (
+                    pPrimeW -
+                    pPrimeE
+                    );
+
+
+            /*
+                Limit the actual velocity correction.
+
+                This prevents one bad pressure-correction
+                iteration from destroying the solution.
+            */
+
+            if (!std::isfinite(uCorrection))
+            {
+                throw std::runtime_error(
+                    "SIMPLE: non-finite U correction");
+            }
+
+
+            const double maxCorrection =
+                0.25 *
+                std::max(
+                    1.0,
+                    std::abs(
+                        fields.velocity.getx()[P]));
+
+
+            uCorrection =
+                std::max(
+                    -maxCorrection,
+                    std::min(
+                        maxCorrection,
+                        uCorrection));
+
+
+            fields.velocity.getx()[P] +=
+                uCorrection;
+
+
+            /*
+                V CORRECTION
+            */
+
+            double pPrimeS =
+                pressureCorrection[P];
+
+            double pPrimeN =
+                pressureCorrection[P];
+
+
+            if (cell.south != -1)
+            {
+                pPrimeS =
+                    pressureCorrection[
+                        static_cast<std::size_t>(
+                            cell.south)];
+            }
+            else if (
+                southBC.getType() ==
+                BoundaryType::Outlet)
+            {
+                pPrimeS = 0.0;
+            }
+            else
+            {
+                pPrimeS =
                     pressureCorrection[P];
+            }
 
 
-                bool hasSouth =
-                    cell.south != -1;
-
-                bool hasNorth =
-                    cell.north != -1;
-
-
-                if (hasSouth)
-                {
-                    pPrimeS =
-                        pressureCorrection[
-                            static_cast<std::size_t>(
-                                cell.south)];
-                }
-
-                if (hasNorth)
-                {
-                    pPrimeN =
-                        pressureCorrection[
-                            static_cast<std::size_t>(
-                                cell.north)];
-                }
+            if (cell.north != -1)
+            {
+                pPrimeN =
+                    pressureCorrection[
+                        static_cast<std::size_t>(
+                            cell.north)];
+            }
+            else if (
+                northBC.getType() ==
+                BoundaryType::Outlet)
+            {
+                pPrimeN = 0.0;
+            }
+            else
+            {
+                pPrimeN =
+                    pressureCorrection[P];
+            }
 
 
-                // Interior north/south correction.
-                //
-                // At a wall, the corresponding boundary velocity is
-                // fixed, so there is no velocity correction through
-                // the wall.
-                if (hasSouth &&
-                    hasNorth)
-                {
-                    const double correction =
-                        (An / aPv) *
-                        (pPrimeS - pPrimeN);
+            double vCorrection =
+                dV *
+                (
+                    pPrimeS -
+                    pPrimeN
+                    );
 
-                    fields.velocity.gety()[P] +=
-                        relaxationVelocity *
-                        correction;
-                }
-                else if (hasSouth)
-                {
-                    // North wall.
-                    const double correction =
-                        (An / aPv) *
-                        pPrimeS;
 
-                    fields.velocity.gety()[P] +=
-                        relaxationVelocity *
-                        correction;
-                }
-                else if (hasNorth)
-                {
-                    // South wall.
-                    const double correction =
-                        -(An / aPv) *
-                        pPrimeN;
+            if (!std::isfinite(vCorrection))
+            {
+                throw std::runtime_error(
+                    "SIMPLE: non-finite V correction");
+            }
 
-                    fields.velocity.gety()[P] +=
-                        relaxationVelocity *
-                        correction;
-                }
+
+            const double maxVCorrection =
+                0.25 *
+                std::max(
+                    1.0,
+                    std::abs(
+                        fields.velocity.gety()[P]));
+
+
+            vCorrection =
+                std::max(
+                    -maxVCorrection,
+                    std::min(
+                        maxVCorrection,
+                        vCorrection));
+
+
+            fields.velocity.gety()[P] +=
+                vCorrection;
+
+
+            if (!std::isfinite(
+                fields.velocity.getx()[P]) ||
+                !std::isfinite(
+                    fields.velocity.gety()[P]))
+            {
+                throw std::runtime_error(
+                    "SIMPLE: non-finite velocity after correction");
+            }
+
+
+            if (std::abs(
+                fields.velocity.getx()[P])
+            > MAX_VELOCITY ||
+                std::abs(
+                    fields.velocity.gety()[P])
+            > MAX_VELOCITY)
+            {
+                throw std::runtime_error(
+                    "SIMPLE: velocity became unstable during correction");
             }
         }
-
-
-        // ------------------------------------------------------------
-        // Never allow correction to overwrite prescribed BCs.
-        // ------------------------------------------------------------
-
-        applyBoundaryConditions();
     }
 
-
-    // ================================================================
-    // CALCULATE RESIDUAL
-    //
-    // The residual is the absolute sum of continuity errors over the
-    // complete set of control volumes.
-    //
-    // We do NOT simply discard inlet/wall cells anymore.
-    //
-    // Instead, the boundary fluxes themselves are defined so that
-    // prescribed walls have zero mass flux and prescribed inlets have
-    // the correct specified mass flux.
-    // ================================================================
 
     double SIMPLE::calculateResidual()
     {
         const std::size_t n =
             mesh.numberOfCells();
 
-        double totalResidual = 0.0;
+
+        double totalResidual =
+            0.0;
 
 
         for (std::size_t P = 0;
@@ -2061,110 +2052,105 @@ namespace CFD
     }
 
 
-    // ================================================================
-    // CHECK CONVERGENCE
-    // ================================================================
-
     bool SIMPLE::checkConvergence()
     {
         residual =
             calculateResidual();
+
 
         return residual <
             convergenceTolerance;
     }
 
 
-    // ================================================================
-    // MAIN SIMPLE SOLVER
-    // ================================================================
-
     void SIMPLE::solve()
     {
         iteration = 0;
-        residual = std::numeric_limits<double>::infinity();
+
+        residual =
+            std::numeric_limits<double>::infinity();
 
 
         for (iteration = 1;
             iteration <= maxIterations;
             ++iteration)
         {
-            // ========================================================
-            // 1. Apply physical boundary conditions
-            // ========================================================
+            /*
+                1. Physical pressure boundary conditions
+            */
 
             applyBoundaryConditions();
 
 
-            // ========================================================
-            // 2. Calculate current face mass fluxes
-            // ========================================================
+            /*
+                2. Current face mass fluxes
+            */
 
             calculateFaceFluxes();
 
 
-            // ========================================================
-            // 3. Solve U momentum
-            // ========================================================
+            /*
+                3. U momentum
+            */
 
             solveUMomentum();
 
 
-            // ========================================================
-            // 4. Solve V momentum
-            // ========================================================
+            /*
+                4. V momentum
+            */
 
             solveVMomentum();
 
 
-            // ========================================================
-            // 5. Momentum solution changed the velocities.
-            //    Therefore the mass fluxes MUST be recalculated.
-            // ========================================================
+            /*
+                5. Recalculate fluxes using momentum solution
+            */
 
             calculateFaceFluxes();
 
 
-            // ========================================================
-            // 6. Assemble pressure correction
-            // ========================================================
+            /*
+                6. Pressure correction equation
+            */
 
             assemblePressureCorrection();
 
 
-            // ========================================================
-            // 7. Solve pressure correction
-            // ========================================================
+            /*
+                7. Pressure correction solution
+            */
 
             solvePressureCorrection();
 
 
-            // ========================================================
-            // 8. Correct pressure
-            // ========================================================
+            /*
+                8. Pressure update
+            */
 
             correctPressure();
 
 
-            // ========================================================
-            // 9. Correct velocity using the SAME pressure correction
-            //    relationship used to derive the pressure equation.
-            // ========================================================
+            /*
+                9. Velocity correction
+
+                The relaxation factor is already included in
+                dU and dV.
+            */
 
             correctVelocity();
 
 
-            // ========================================================
-            // 10. Velocity changed again.
-            //     Recalculate mass fluxes.
-            // ========================================================
+            /*
+                10. Recalculate physical fluxes
+            */
 
             calculateFaceFluxes();
 
 
-            // ========================================================
-            // 11. Calculate continuity residual
-            // ========================================================
+            /*
+                11. Continuity residual
+            */
 
             residual =
                 calculateResidual();
@@ -2178,11 +2164,12 @@ namespace CFD
                 << "\n";
 
 
-            // ========================================================
-            // 12. Check convergence
-            // ========================================================
+            /*
+                12. Convergence
+            */
 
-            if (checkConvergence())
+            if (residual <
+                convergenceTolerance)
             {
                 std::cout
                     << "\nSIMPLE converged after "
@@ -2202,4 +2189,3 @@ namespace CFD
     }
 
 }
-
