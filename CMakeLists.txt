@@ -21,18 +21,18 @@ target_include_directories(CFDCore
 enable_testing()
 
 add_executable(test_vector
-    CFDSolver/tests/test_vector.cpp)
+    CFDSolver/tests/test_vector.cpp "CFDSolver/src/IO/2DMeshReader.hpp")
 target_link_libraries(test_vector PRIVATE CFDCore)
 add_test(NAME VectorTest COMMAND test_vector)
 
 add_executable(test_mesh2D
     CFDSolver/src/mesh/mesh2D.cpp
-    CFDSolver/tests/test_mesh2D.cpp)
+    CFDSolver/tests/test_mesh2D.cpp "CFDSolver/src/IO/2DMeshReader.hpp")
 target_link_libraries(test_mesh2D PRIVATE CFDCore)
 add_test(NAME Mesh2DTest COMMAND test_mesh2D)
 
 add_executable(heat_diffusion_1D
-    CFDSolver/examples/heat_diffusion_1D.cpp)
+    CFDSolver/examples/heat_diffusion_1D.cpp "CFDSolver/src/IO/2DMeshReader.hpp")
 target_link_libraries(heat_diffusion_1D PRIVATE CFDCore)
 
 if(BUILD_UI)
@@ -42,7 +42,7 @@ if(BUILD_UI)
     find_package(imgui CONFIG REQUIRED)
 
     add_executable(cfd_app
-        CFDSolver/examples/cfd_app.cpp)
+        CFDSolver/examples/cfd_app.cpp "CFDSolver/src/IO/2DMeshReader.hpp")
     target_link_libraries(cfd_app
         PRIVATE
         CFDCore
