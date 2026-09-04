@@ -1,13 +1,10 @@
 #pragma once
-#include <iostream>
-#include <sstream>
-#include <string>
 #include <vector>
 #include <array>
 #include "mesh/mesh2D.h"
 
 
-class 2DMeshReader
+class MeshReader2D
 {
 public:
     struct Vertex
@@ -42,7 +39,7 @@ public:
                     });
             }
         }
-//Faces
+//Faces (Quads)
         for (int j = 0; j < ny; ++j)
         {
             for (int i = 0; i < nx; ++i)
@@ -86,7 +83,6 @@ public:
     const std::vector<Face>& getFaces() const
     {
         return faces;
-    }
     }
 
 private:
