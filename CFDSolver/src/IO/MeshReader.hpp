@@ -4,21 +4,39 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
 
-namespace CDF {
+namespace CFD {
 
-    struct Vertex
+    struct ReadVertex
     {
         float x;
         float y;
         float z;
+
+        ReadVertex(float x, float y, float z)
+            :x(x), y(y), z(z) {
+        }
+
+        ReadVertex(const ReadVertex& vertex)
+            :x(vertex.x), y(vertex.y), z(vertex.z) {
+        }
+       
     };
 
-    struct Normal
+    struct ReadNormal
     {
         float x;
         float y;
         float z;
+        ReadNormal(float x, float y, float z)
+            :x(x), y(y), z(z) {
+        }
+
+        ReadNormal(const ReadNormal& normal)
+            :x(normal.x), y(normal.y), z(normal.z) {
+        }
+
     };
 
     struct FaceVertex
@@ -29,46 +47,54 @@ namespace CDF {
 
     struct Face
     {
-        std::vector<FaceVertex> vertices;
+        std::vector<FaceVertex> verticesFace;
     };
 
     struct OBJMesh
     {
-        std::vector<Vertex> vertices;
-        std::vector<Normal> normals;
+        std::vector<ReadVertex> vertices;
+        std::vector<ReadNormal> normals;
         std::vector<Face> faces;
     };
 
-    OBJMesh loadONJ(const std::string& filepath){
+    OBJMesh loadOBJ(const std::string& filepath){
         OBJMesh mesh;
+        std::cout << "mesh created!!!";
 
         std::ifstream file(filepath);
-
+        if (std::filesystem::exists(filepath)) {
+            std::cout << "File exists!\n";
+        }
+        else {
+            std::cout << "File NOT found!\n";
+            std::cout << "Current dir: "
+                << std::filesystem::current_path()
+                << "\n";
+        }
         std::string line;
 
         while (std::getline(file, line)) {
             std::istringstream stream(line);
-
             std::string type;
             stream >> type;
 
             if (type.empty())
                 continue;
 
-            if (type == "v") {
+            else if (type == "v") {
                 float x, y, z;
                 stream >> x >> y >> z;
                 mesh.vertices.emplace_back(x, y, z);
             }
 
-            if (type == "vn") {
+            else if (type == "vn") {
                 float x, y, z;
                 stream >> x >> y >> z;
 
                 mesh.normals.emplace_back(x, y, z);
             }
 
-            if (type == "f") {
+            else if (type == "f") {
                 Face face;
                 std::string token;
 
@@ -94,7 +120,7 @@ namespace CDF {
                             std::stoi(vniString) - 1;
                     }
 
-                    face.vertices.push_back({
+                    face.verticesFace.push_back({
                         vi,
                         vni
                         });
@@ -105,4 +131,4 @@ namespace CDF {
         return mesh;
     }
 
-} // namespace CDF
+} // namespace CFD
