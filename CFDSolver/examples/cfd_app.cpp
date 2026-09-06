@@ -3,6 +3,7 @@
  * ImGui + OpenGL UI
  */
 #include "renderer/Window.hpp"
+#include "renderer/MeshEditor2D.hpp"
 #include <imgui.h>
 #include <iostream>
 
@@ -25,10 +26,11 @@ int main() {
     float progress = 0.0f;
 
     std::cout << "App running!\n";
-
+    CFD::UI::MeshEditor2D meshEditor;
     while (!window.shouldClose()) {
         window.beginFrame();
-
+        meshEditor.drawUI();
+        meshEditor.drawViewport();
         // ── Menu bar ──────────────────────────
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
@@ -46,7 +48,7 @@ int main() {
             }
             ImGui::EndMainMenuBar();
         }
-        window.renderAbout();  // ← is this here??
+        window.renderAbout();  
 
         // ── Left toolbar ──────────────────────
         ImGui::SetNextWindowPos({ 0, 20 });

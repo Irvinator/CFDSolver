@@ -71,6 +71,33 @@ target_include_directories(tests_BC
         ${CMAKE_SOURCE_DIR}/CFDSolver/src
 )
 
+add_executable(test_BiCGSTAB
+    CFDSolver/tests/test_BiCGSTAB.cpp
+    CFDSolver/src/linearAlgebra/Vector.hpp
+    CFDSolver/src/linearAlgebra/SparseMatrix.hpp
+    CFDSolver/src/linearAlgebra/BiCGSTAB.h
+)
+
+target_link_libraries(test_BiCGSTAB
+    PRIVATE CFDCore
+)
+
+add_test(NAME BiCGSTABTest COMMAND test_BiCGSTAB)
+
+
+add_executable(test_SIMPLE
+    CFDSolver/tests/test_SIMPLE.cpp
+    CFDSolver/src/solvers/SIMPLE.cpp
+    CFDSolver/src/mesh/mesh2D.cpp
+    CFDSolver/src/BCs/BC.cpp
+)
+target_link_libraries(test_SIMPLE
+    PRIVATE CFDCore
+)
+
+add_test(NAME SIMPLETest COMMAND test_SIMPLE)
+
+
 if(BUILD_UI)
     find_package(glfw3 CONFIG REQUIRED)
     find_package(glad  CONFIG REQUIRED)
@@ -78,7 +105,10 @@ if(BUILD_UI)
     find_package(imgui CONFIG REQUIRED)
 
     add_executable(cfd_app
-        CFDSolver/examples/cfd_app.cpp)
+        CFDSolver/examples/cfd_app.cpp
+        CFDSolver/src/renderer/MeshEditor2D.cpp
+
+    )
     target_link_libraries(cfd_app
         PRIVATE
         CFDCore
