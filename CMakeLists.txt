@@ -35,6 +35,51 @@ add_executable(heat_diffusion_1D
     CFDSolver/examples/heat_diffusion_1D.cpp "CFDSolver/src/IO/2DMeshReader.hpp")
 target_link_libraries(heat_diffusion_1D PRIVATE CFDCore)
 
+add_executable(test_Fields
+    CFDSolver/tests/test_fields.cpp
+    CFDSolver/src/mesh/mesh2D.cpp
+)
+
+target_link_libraries(test_Fields PRIVATE CFDCore)
+
+add_test(NAME FieldsTest COMMAND test_Fields)
+
+add_executable(tests_BC
+    CFDSolver/tests/test_BC.cpp
+    CFDSolver/src/BCs/BC.cpp
+)
+
+target_include_directories(tests_BC
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/CFDSolver/src
+)
+
+add_executable(test_BiCGSTAB
+    CFDSolver/tests/test_BiCGSTAB.cpp
+    CFDSolver/src/linearAlgebra/Vector.hpp
+    CFDSolver/src/linearAlgebra/SparseMatrix.hpp
+    CFDSolver/src/linearAlgebra/BiCGSTAB.h
+)
+
+target_link_libraries(test_BiCGSTAB
+    PRIVATE CFDCore
+)
+
+add_test(NAME BiCGSTABTest COMMAND test_BiCGSTAB)
+
+add_executable(test_SIMPLE
+    CFDSolver/tests/test_SIMPLE.cpp
+    CFDSolver/src/solvers/SIMPLE.cpp
+    CFDSolver/src/mesh/mesh2D.cpp
+    CFDSolver/src/BCs/BC.cpp
+)
+
+target_link_libraries(test_SIMPLE
+    PRIVATE CFDCore
+)
+
+add_test(NAME SIMPLETest COMMAND test_SIMPLE)
+
 if(BUILD_UI)
     find_package(glfw3 CONFIG REQUIRED)
     find_package(glad  CONFIG REQUIRED)
