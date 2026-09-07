@@ -3,13 +3,17 @@
  * ImGui + OpenGL UI
  */
 #include "renderer/Window.hpp"
+#include "IO/MeshReader.hpp"
 #include <imgui.h>
 #include <iostream>
+#include <fstream>
 
 int main() {
 
     CFD::Window window(1280, 720,
         "CFD Solver");
+
+    CFD::OBJMesh loadedMesh;
 
     if (!window.init()) {
         std::cerr << "Failed to init!\n";
@@ -33,7 +37,25 @@ int main() {
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
                 ImGui::MenuItem("New");
-                ImGui::MenuItem("Open");
+                if (ImGui::MenuItem("Open")) {
+                    try
+                    {
+                        loadedMesh =
+                            CFD::loadOBJ("test_mesh_for_loading.obj");
+
+                        std::cout << "Mesh loaded!\n";
+                        std::cout << "Vertices: " << loadedMesh.vertices.size() << '\n';
+
+                        std::cout << "Normals: " << loadedMesh.normals.size() << '\n';
+
+                        std::cout << "Faces: " << loadedMesh.faces.size() << '\n';
+                    }
+                    catch (const std::exception& e)
+                    {
+                        std::cerr << "Failed to load mesh: " << e.what() << '\n';
+                    }
+                
+                };
                 ImGui::MenuItem("Save");
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit"))
