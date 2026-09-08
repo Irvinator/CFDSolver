@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include "IO/MeshReader.hpp"
 
 namespace CFD::UI {
 
@@ -30,6 +31,8 @@ namespace CFD::UI {
 
     class MeshEditor2D {
     public:
+
+        void setMesh(CFD::OBJMesh* mesh);
         void drawUI();
         void drawViewport();
 
@@ -44,6 +47,6 @@ namespace CFD::UI {
         MeshSettings mesh_;
         ScalarDisplayField scalar_;
 
-        
+        CFD::OBJMesh* importedMesh_ = nullptr;
     };
 }

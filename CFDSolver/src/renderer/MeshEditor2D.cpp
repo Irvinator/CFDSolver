@@ -35,6 +35,11 @@ namespace CFD::UI {
         }
     }
 
+    void MeshEditor2D::setMesh(CFD::OBJMesh* mesh)
+    {
+        importedMesh_ = mesh;
+    }
+
     void MeshEditor2D::drawUI()
     {
         ImGui::Begin("Mesh Editor 2D");
@@ -176,6 +181,116 @@ namespace CFD::UI {
             }
         }
 
+        if (importedMesh_ && !importedMesh_->vertices.empty())  // Imported mesh rendering
+        {
+            // Convert obj coords to ImGui coords
+            float minX = importedMesh_->vertices[0].x;
+            float maxX = importedMesh_->vertices[0].x;
+            float minY = importedMesh_->vertices[0].y;
+            float maxY = importedMesh_->vertices[0].y;
+
+            for (const auto& vertex : importedMesh_->vertices)
+            {
+                minX = std::min(minX, vertex.x);
+                maxX = std::max(maxX, vertex.x);
+
+                minY = std::min(minY, vertex.y);
+                maxY = std::max(maxY, vertex.y);
+            }
+
+            float width = maxX - minX;
+            float height = maxY - minY;
+
+            if (width > 0.0f && height > 0.0f)
+            {
+                const float margin = 30.0f;
+
+                float scaleX =
+                    (canvasSize.x - 2.0f * margin) / width;
+
+                float scaleY =
+                    (canvasSize.y - 2.0f * margin) / height;
+
+                float scale = std::min(scaleX, scaleY);
+
+                float centerX = (minX + maxX) * 0.5f;
+                float centerY = (minY + maxY) * 0.5f;
+
+                ImVec2 canvasCenter(
+                    canvasPos.x + canvasSize.x * 0.5f,
+                    canvasPos.y + canvasSize.y * 0.5f
+                );
+
+                auto toScreen =
+                    [&](float x, float y)
+                {
+                    float screenX =
+                        canvasCenter.x +
+                        (x - centerX) * scale;
+
+                    float screenY =
+                        canvasCenter.y -
+                        (y - centerY) * scale;
+
+                    return ImVec2(screenX, screenY);
+                };
+
+                // Draw faces
+                for (const auto& face : importedMesh_->faces)
+                {
+                    if (face.verticesFace.size() < 2)
+                        continue;
+
+                    for (size_t i = 0;
+                        i < face.verticesFace.size();
+                        ++i)
+                    {
+                        size_t next =
+                            (i + 1) % face.verticesFace.size();
+
+                        int indexA =
+                            face.verticesFace[i].vertexIndex;
+
+                        int indexB =
+                            face.verticesFace[next].vertexIndex;
+
+                        if (indexA < 0 ||
+                            indexB < 0 ||
+                            indexA >= static_cast<int>(
+                                importedMesh_->vertices.size()) ||
+                            indexB >= static_cast<int>(
+                                importedMesh_->vertices.size()))
+                        {
+                            continue;
+                        }
+
+                        const auto& a =
+                            importedMesh_->vertices[indexA];
+
+                        const auto& b =
+                            importedMesh_->vertices[indexB];
+
+                        drawList->AddLine(
+                            toScreen(a.x, a.y),
+                            toScreen(b.x, b.y),
+                            IM_COL32(80, 200, 255, 255),
+                            1.0f
+                        );
+                    }
+                }
+
+                // Draw vertices
+                for (const auto& vertex :
+                    importedMesh_->vertices)
+                {
+                    drawList->AddCircleFilled(
+                        toScreen(vertex.x, vertex.y),
+                        2.0f,
+                        IM_COL32(255, 180, 50, 255)
+                    );
+                }
+            }
+        }
         ImGui::End();
     }
 

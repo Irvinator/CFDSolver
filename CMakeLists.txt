@@ -21,13 +21,13 @@ target_include_directories(CFDCore
 enable_testing()
 
 add_executable(test_vector
-    CFDSolver/tests/test_vector.cpp)
+    CFDSolver/tests/test_vector.cpp "CFDSolver/src/IO/MeshReader.hpp")
 target_link_libraries(test_vector PRIVATE CFDCore)
 add_test(NAME VectorTest COMMAND test_vector)
 
 add_executable(test_mesh2D
     CFDSolver/src/mesh/mesh2D.cpp
-    CFDSolver/tests/test_mesh2D.cpp)
+    CFDSolver/tests/test_mesh2D.cpp "CFDSolver/src/IO/MeshReader.hpp")
 target_link_libraries(test_mesh2D PRIVATE CFDCore)
 add_test(NAME Mesh2DTest COMMAND test_mesh2D)
 
@@ -35,7 +35,7 @@ add_executable(test_heat_diffusion2D
     CFDSolver/tests/test_heat_diffusion2D.cpp
     CFDSolver/src/solvers/HeatSolver2D.cpp
     CFDSolver/src/mesh/mesh2D.cpp
-)
+ "CFDSolver/src/IO/MeshReader.hpp")
 
 target_link_libraries(test_heat_diffusion2D PRIVATE CFDCore)
 
@@ -43,19 +43,19 @@ add_executable(heat_diffusion_2D
     CFDSolver/examples/heat_diffusion_2D.cpp
     CFDSolver/src/solvers/HeatSolver2D.cpp
     CFDSolver/src/mesh/mesh2D.cpp
-)
+ "CFDSolver/src/IO/MeshReader.hpp")
 target_link_libraries(heat_diffusion_2D PRIVATE CFDCore)
 
 add_test(NAME HeatDiffusion2DTest COMMAND test_heat_diffusion2D)
 
 add_executable(heat_diffusion_1D
-    CFDSolver/examples/heat_diffusion_1D.cpp)
+    CFDSolver/examples/heat_diffusion_1D.cpp "CFDSolver/src/IO/MeshReader.hpp")
 target_link_libraries(heat_diffusion_1D PRIVATE CFDCore)
 
 add_executable(test_Fields
     CFDSolver/tests/test_fields.cpp
     CFDSolver/src/mesh/mesh2D.cpp
-)
+ "CFDSolver/src/IO/MeshReader.hpp")
 
 target_link_libraries(test_Fields PRIVATE CFDCore)
 
@@ -64,7 +64,7 @@ add_test(NAME FieldsTest COMMAND test_Fields)
 add_executable(tests_BC
     CFDSolver/tests/test_BC.cpp
     CFDSolver/src/BCs/BC.cpp
-)
+ "CFDSolver/src/IO/MeshReader.hpp")
 
 target_include_directories(tests_BC
     PRIVATE
@@ -76,7 +76,7 @@ add_executable(test_BiCGSTAB
     CFDSolver/src/linearAlgebra/Vector.hpp
     CFDSolver/src/linearAlgebra/SparseMatrix.hpp
     CFDSolver/src/linearAlgebra/BiCGSTAB.h
-)
+ "CFDSolver/src/IO/MeshReader.hpp")
 
 target_link_libraries(test_BiCGSTAB
     PRIVATE CFDCore
@@ -90,7 +90,7 @@ add_executable(test_SIMPLE
     CFDSolver/src/solvers/SIMPLE.cpp
     CFDSolver/src/mesh/mesh2D.cpp
     CFDSolver/src/BCs/BC.cpp
-)
+ "CFDSolver/src/IO/MeshReader.hpp")
 target_link_libraries(test_SIMPLE
     PRIVATE CFDCore
 )
@@ -102,7 +102,7 @@ add_executable(test_staggered_SIMPLE
     CFDSolver/src/solvers/StaggeredSIMPLE.cpp
     CFDSolver/src/mesh/mesh2D.cpp
     CFDSolver/src/BCs/BC.cpp
-)
+ "CFDSolver/src/IO/MeshReader.hpp")
 
 target_link_libraries(test_staggered_SIMPLE
     PRIVATE CFDCore
@@ -121,7 +121,7 @@ if(BUILD_UI)
         CFDSolver/examples/cfd_app.cpp
         CFDSolver/src/renderer/MeshEditor2D.cpp
 
-    )
+     "CFDSolver/src/IO/MeshReader.hpp")
     target_link_libraries(cfd_app
         PRIVATE
         CFDCore
