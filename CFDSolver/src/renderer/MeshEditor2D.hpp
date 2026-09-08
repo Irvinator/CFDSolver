@@ -12,26 +12,39 @@ namespace CFD::UI {
         double x1 = 1.0;
         double y1 = 1.0;
 
-        bool valid() const { return x1 > x0 && y1 > y0; }
-        double width() const { return x1 - x0; }
-        double height() const { return y1 - y0; }
+        bool valid() const
+        {
+            return x1 > x0 && y1 > y0;
+        }
+
+        double width() const
+        {
+            return x1 - x0;
+        }
+
+        double height() const
+        {
+            return y1 - y0;
+        }
     };
 
-    struct MeshSettings {
+    struct MeshSettings
+    {
         int nx = 20;
         int ny = 20;
     };
 
-    struct ScalarDisplayField {
+    struct ScalarDisplayField
+    {
         std::vector<double> values;
         double minValue = 0.0;
         double maxValue = 1.0;
         bool loaded = false;
     };
 
-    class MeshEditor2D {
+    class MeshEditor2D
+    {
     public:
-
         void setMesh(CFD::OBJMesh* mesh);
         void drawUI();
         void drawViewport();
@@ -49,4 +62,5 @@ namespace CFD::UI {
 
         CFD::OBJMesh* importedMesh_ = nullptr;
     };
-}
+
+} // namespace CFD::UI
