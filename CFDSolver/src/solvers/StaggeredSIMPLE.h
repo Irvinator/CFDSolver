@@ -1,21 +1,21 @@
 #pragma once
 
 #include "mesh/mesh2D.h"
-#include "fields/Fields.h"
 #include "BCs/BC.h"
 #include "linearAlgebra/SparseMatrix.hpp"
 #include "linearAlgebra/Vector.hpp"
+#include "fields/StaggeredFields.h"
 
 #include <cstddef>
 #include <vector>
 
 namespace CFD
 {
-    class SIMPLE
+    class StaggeredSIMPLE
     {
     private:
         Mesh& mesh;
-        Fields& fields;
+        StaggeredFields& fields;
 
         BoundaryCondition& northBC;
         BoundaryCondition& southBC;
@@ -32,8 +32,8 @@ namespace CFD
         Vector pressureRHS;
         Vector pressureCorrection;
 
-        double relaxationPressure{ 0.2 };
-        double relaxationVelocity{ 0.3 };
+        double relaxationPressure{ 0.3 };
+        double relaxationVelocity{ 0.7 };
         double rho{ 1.0 };
         double mu{ 0.01 };
         double convergenceTolerance{ 1.0e-6 };
@@ -42,16 +42,10 @@ namespace CFD
         std::size_t iteration{ 0 };
         double residual{ 0.0 };
 
-        std::vector<double> fluxEast;
-        std::vector<double> fluxWest;
-        std::vector<double> fluxNorth;
-        std::vector<double> fluxSouth;
-
-        std::vector<double> invDiagU;
-        std::vector<double> invDiagV;
+        std::vector<double> dU;
+        std::vector<double> dV;
 
         void applyBoundaryConditions();
-        void initializeFluxStorage();
 
         void assembleUMomentum();
         void solveUMomentum();
@@ -59,22 +53,19 @@ namespace CFD
         void assembleVMomentum();
         void solveVMomentum();
 
-        void buildRhieChowFaceFluxes();
-
         void assemblePressureCorrection();
         void solvePressureCorrection();
 
         void correctPressure();
-        void correctFaceFluxes();
-        void correctVelocity();
+        void correctVelocities();
 
         double calculateResidual();
         bool checkConvergence();
 
     public:
-        SIMPLE(
+        StaggeredSIMPLE(
             Mesh& mesh,
-            Fields& fields,
+            StaggeredFields& fields,
             BoundaryCondition& northBC,
             BoundaryCondition& southBC,
             BoundaryCondition& eastBC,
@@ -93,7 +84,6 @@ namespace CFD
         double getDensity() const;
         double getViscosity() const;
         std::size_t getMaxIterations() const;
-
         std::size_t getIteration() const;
         double getResidual() const;
 

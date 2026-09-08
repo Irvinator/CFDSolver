@@ -97,6 +97,19 @@ target_link_libraries(test_SIMPLE
 
 add_test(NAME SIMPLETest COMMAND test_SIMPLE)
 
+add_executable(test_staggered_SIMPLE
+    CFDSolver/tests/test_staggered_SIMPLE.cpp
+    CFDSolver/src/solvers/StaggeredSIMPLE.cpp
+    CFDSolver/src/mesh/mesh2D.cpp
+    CFDSolver/src/BCs/BC.cpp
+)
+
+target_link_libraries(test_staggered_SIMPLE
+    PRIVATE CFDCore
+)
+
+add_test(NAME StaggeredSIMPLETest COMMAND test_staggered_SIMPLE)
+
 
 if(BUILD_UI)
     find_package(glfw3 CONFIG REQUIRED)
