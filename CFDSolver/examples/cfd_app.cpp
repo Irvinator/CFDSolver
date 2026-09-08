@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include <iostream>
 #include <fstream>
+#include <nfd.h>
 
 int main() {
 
@@ -18,6 +19,16 @@ int main() {
 
     if (!window.init()) {
         std::cerr << "Failed to init!\n";
+        return -1;
+    }
+
+    nfdresult_t initResult = NFD_Init();
+    if (initResult != NFD_OKAY)
+    {
+        std::cerr << "NFD initialization failed: "
+            << NFD_GetError() << '\n';
+
+        window.cleanup();
         return -1;
     }
 
@@ -62,6 +73,64 @@ int main() {
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit"))
                     break;
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Mesh")) {
+                if (ImGui::MenuItem("Import")) {
+                    nfdchar_t* outPath = nullptr;
+
+                    nfdfilteritem_t filterItem = {
+                        "OBJ Files",
+                        "obj"
+                    };
+
+                    nfdresult_t result = NFD_OpenDialog(
+                        &outPath,
+                        &filterItem,
+                        1,
+                        nullptr
+                    );
+
+                    if (result == NFD_OKAY)
+                    {
+                        try
+                        {
+                            loadedMesh = CFD::loadOBJ(outPath);
+
+                            std::cout << "Mesh loaded!\n";
+                            std::cout << "Path: " << outPath << '\n';
+                            std::cout << "Vertices: "
+                                << loadedMesh.vertices.size() << '\n';
+                            std::cout << "Normals: "
+                                << loadedMesh.normals.size() << '\n';
+                            std::cout << "Faces: "
+                                << loadedMesh.faces.size() << '\n';
+                        }
+                        catch (const std::exception& e)
+                        {
+                            std::cerr << "Failed to load mesh: "
+                                << e.what() << '\n';
+                        }
+
+                        NFD_FreePath(outPath);
+                    }
+                    else if (result == NFD_CANCEL)
+                    {
+                        std::cout << "Import cancelled.\n";
+                    }
+                    else
+                    {
+                        std::cerr << "File dialog error: "
+                            << NFD_GetError() << '\n';
+                    }
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Physics")) {
+                ImGui::MenuItem(
+                    "Heat Diffusion");
+                ImGui::MenuItem(
+                    "Navier-Stokes");
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Help")) {
@@ -250,6 +319,7 @@ int main() {
         window.endFrame();
     }
 
+    NFD_Quit();
     window.cleanup();
     return 0;
 }
