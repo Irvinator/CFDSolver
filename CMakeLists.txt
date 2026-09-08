@@ -120,6 +120,8 @@ if(BUILD_UI)
     add_executable(cfd_app
         CFDSolver/examples/cfd_app.cpp
         CFDSolver/src/renderer/MeshEditor2D.cpp
+        CFDSolver/src/mesh/mesh2D.cpp
+        CFDSolver/src/solvers/HeatSolver2D.cpp
 
     )
     target_link_libraries(cfd_app
