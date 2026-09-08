@@ -85,6 +85,7 @@ if(BUILD_UI)
     find_package(glad  CONFIG REQUIRED)
     find_package(glm   CONFIG REQUIRED)
     find_package(imgui CONFIG REQUIRED)
+    find_package(nfd CONFIG REQUIRED)
 
     add_executable(cfd_app
         CFDSolver/examples/cfd_app.cpp "CFDSolver/src/IO/2DMeshReader.hpp")
@@ -94,7 +95,8 @@ if(BUILD_UI)
         glfw
         glad::glad
         glm::glm
-        imgui::imgui)
+        imgui::imgui
+        nfd::nfd)
 endif()
 
 message(STATUS "CFDSolver configured")
