@@ -28,18 +28,16 @@ namespace CFD::UI {
     // ─────────────────────────────────────────────────────────────────────────
     //  Animation helpers
     // ─────────────────────────────────────────────────────────────────────────
-
     void MeshEditor2D::pushAnimationFrame(const std::vector<double>& values,
-        double                      time)
+        double time,
+        double globalMin,
+        double globalMax)
     {
         AnimFrame f;
         f.values = values;
         f.time = time;
-        if (!values.empty()) {
-            auto [mn, mx] = std::minmax_element(values.begin(), values.end());
-            f.minValue = *mn;
-            f.maxValue = *mx;
-        }
+        f.minValue = globalMin;   // fixed across all frames
+        f.maxValue = globalMax;   // fixed across all frames
         animFrames_.push_back(std::move(f));
     }
 
@@ -48,11 +46,21 @@ namespace CFD::UI {
         animFrames_.clear();
         animFrame_ = 0;
         animPlaying_ = false;
+        animAccum_ = 0.0f;
+    }
+
+    void MeshEditor2D::applyAnimFrame(int idx)
+    {
+        if (idx < 0 || idx >= static_cast<int>(animFrames_.size())) return;
+        const AnimFrame& f = animFrames_[idx];
+        scalar_.values = f.values;          // copy this frame's data
+        scalar_.minValue = f.minValue;        // global min — same every frame
+        scalar_.maxValue = f.maxValue;        // global max — same every frame
+        scalar_.loaded = !f.values.empty();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Centre-view helper
-    //  Fits the domain rectangle into the canvas with a small margin.
     // ─────────────────────────────────────────────────────────────────────────
     void MeshEditor2D::centreView(ImVec2 canvasSize)
     {
@@ -61,15 +69,12 @@ namespace CFD::UI {
         const float margin = 40.0f;
         const float domW = static_cast<float>(domain_.width());
         const float domH = static_cast<float>(domain_.height());
-
         if (domW <= 0.0f || domH <= 0.0f) return;
 
         const float scaleX = (canvasSize.x - 2.0f * margin) / domW;
         const float scaleY = (canvasSize.y - 2.0f * margin) / domH;
-        zoom_ = std::min(scaleX, scaleY);
-        zoom_ = std::clamp(zoom_, 0.2f, 50.0f);
+        zoom_ = std::clamp(std::min(scaleX, scaleY), 0.2f, 50.0f);
 
-        // Pan so that the domain centre maps to the canvas centre
         const float domCx = static_cast<float>(domain_.x0 + domain_.x1) * 0.5f;
         const float domCy = static_cast<float>(domain_.y0 + domain_.y1) * 0.5f;
         panX_ = canvasSize.x * 0.5f - domCx * zoom_;
@@ -98,12 +103,10 @@ namespace CFD::UI {
 
         ImGui::Begin("Mesh Viewport", &showViewportWindow_);
 
-        // ── Measure total available area ──────────────────────────────────
         const ImVec2 fullAvail = ImGui::GetContentRegionAvail();
-
-        const float panelWidth = 280.0f;
-        const float legendWidth = 90.0f;   // bar(22) + gap(4) + label text
-        const float spacing = 8.0f;
+        const float  panelWidth = 280.0f;
+        const float  legendWidth = 90.0f;
+        const float  spacing = 8.0f;
 
         // ── Left control panel ────────────────────────────────────────────
         ImGui::BeginChild("mesh_controls",
@@ -117,13 +120,10 @@ namespace CFD::UI {
             clearAnimation();
         }
 
-        // Centre-view button (only useful when domain exists)
         if (domainReady_) {
             ImGui::SameLine();
-            if (ImGui::Button("Centre View")) {
-                // We don't know canvasSize here; set a flag and apply next frame
+            if (ImGui::Button("Centre View"))
                 centreViewRequested_ = true;
-            }
         }
 
         ImGui::Separator();
@@ -155,10 +155,11 @@ namespace CFD::UI {
             ImGui::Text("Max = %.6f", scalar_.maxValue);
         }
 
-        // ── Animation controls ────────────────────────────────────────────
+        // ── Animation controls (inside left panel) ────────────────────────
         if (!animFrames_.empty()) {
             ImGui::Separator();
-            ImGui::Text("Animation  (%d frames)", static_cast<int>(animFrames_.size()));
+            ImGui::Text("Animation  (%d frames)",
+                static_cast<int>(animFrames_.size()));
 
             if (animPlaying_) {
                 if (ImGui::Button("|| Pause")) animPlaying_ = false;
@@ -170,28 +171,31 @@ namespace CFD::UI {
             if (ImGui::Button("|< Reset")) {
                 animFrame_ = 0;
                 animPlaying_ = false;
-                applyAnimFrame(animFrame_);
+                animAccum_ = 0.0f;
+                applyAnimFrame(0);
             }
 
+            // Internal frame scrubber (inside the left panel)
             int fi = animFrame_;
             ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::SliderInt("##anim", &fi, 0,
+            if (ImGui::SliderInt("##anim_inner", &fi, 0,
                 static_cast<int>(animFrames_.size()) - 1))
             {
                 animFrame_ = fi;
                 animPlaying_ = false;
+                animAccum_ = 0.0f;
                 applyAnimFrame(animFrame_);
             }
 
-            ImGui::Text("t = %.4f", animFrames_[animFrame_].time);
-
+            ImGui::Text("t = %.4f s", animFrames_[animFrame_].time);
             ImGui::SliderFloat("Speed", &animSpeed_, 0.5f, 30.0f, "%.1f fps");
         }
 
         if (domainReady_)
             ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Domain ready");
         else if (drawMode_)
-            ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.2f, 1.0f), "Click and drag in viewport");
+            ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.2f, 1.0f),
+                "Click and drag in viewport");
         else
             ImGui::Text("No domain yet");
 
@@ -221,12 +225,12 @@ namespace CFD::UI {
         // ── Advance animation ─────────────────────────────────────────────
         if (animPlaying_ && !animFrames_.empty()) {
             animAccum_ += ImGui::GetIO().DeltaTime;
-            const float frameDuration = 1.0f / animSpeed_;
-            if (animAccum_ >= frameDuration) {
-                animAccum_ -= frameDuration;
+            const float frameDur = 1.0f / animSpeed_;
+            while (animAccum_ >= frameDur) {
+                animAccum_ -= frameDur;
                 animFrame_ = (animFrame_ + 1) %
                     static_cast<int>(animFrames_.size());
-                applyAnimFrame(animFrame_);
+                applyAnimFrame(animFrame_);   // ← updates scalar_ each tick
             }
         }
 
@@ -267,7 +271,6 @@ namespace CFD::UI {
                 canvasPos.x + panX_ + static_cast<float>(x) * zoom_,
                 canvasPos.y + panY_ + static_cast<float>(y) * zoom_);
             };
-
         auto toWorld = [&](float sx, float sy) -> ImVec2 {
             return ImVec2(
                 (sx - canvasPos.x - panX_) / zoom_,
@@ -297,13 +300,14 @@ namespace CFD::UI {
                 drawing_ = false;
                 domainReady_ = domain_.valid();
                 drawMode_ = false;
-
-                // Auto-centre after drawing so the rect is always visible
-                centreView(canvasSize);
+                centreView(canvasSize);   // auto-centre after drawing
             }
         }
 
         // ── Colormap fill ─────────────────────────────────────────────────
+        // scalar_ is updated every frame by applyAnimFrame() when playing.
+        // globalMin/globalMax are stored in every AnimFrame so the scale
+        // never changes between frames.
         if (domainReady_ && showColormap_ && scalar_.loaded) {
             const double dw = domain_.width();
             const double dh = domain_.height();
@@ -315,17 +319,15 @@ namespace CFD::UI {
                 for (int i = 0; i < mesh_.nx; ++i) {
                     const double x0 = domain_.x0 + static_cast<double>(i) * dx;
                     const double y0 = domain_.y0 + static_cast<double>(j) * dy;
-
                     const std::size_t P =
                         static_cast<std::size_t>(j * mesh_.nx + i);
                     double phi = 0.0;
                     if (P < scalar_.values.size()) {
                         const double v = scalar_.values[P];
-                        phi = (rng > 0.0)
+                        phi = (rng > 1e-12)
                             ? (v - scalar_.minValue) / rng
                             : 0.0;
                     }
-
                     drawList->AddRectFilled(
                         toScreen(x0, y0),
                         toScreen(x0 + dx, y0 + dy),
@@ -351,15 +353,13 @@ namespace CFD::UI {
 
             for (int i = 0; i <= mesh_.nx; ++i) {
                 const double x = domain_.x0 + static_cast<double>(i) * dx;
-                drawList->AddLine(
-                    toScreen(x, domain_.y0),
+                drawList->AddLine(toScreen(x, domain_.y0),
                     toScreen(x, domain_.y1),
                     IM_COL32(120, 120, 120, 255));
             }
             for (int j = 0; j <= mesh_.ny; ++j) {
                 const double y = domain_.y0 + static_cast<double>(j) * dy;
-                drawList->AddLine(
-                    toScreen(domain_.x0, y),
+                drawList->AddLine(toScreen(domain_.x0, y),
                     toScreen(domain_.x1, y),
                     IM_COL32(120, 120, 120, 255));
             }
@@ -401,7 +401,6 @@ namespace CFD::UI {
             const float  barH = std::max(120.0f, fullAvail.y - 110.0f);
             const ImVec2 barMax(barMin.x + barW, barMin.y + barH);
 
-            // Draw gradient bar
             for (int y = 0; y < static_cast<int>(barH); ++y) {
                 const double t = 1.0 - static_cast<double>(y) /
                     static_cast<double>(barH - 1);
@@ -412,30 +411,9 @@ namespace CFD::UI {
             }
             ld->AddRect(barMin, barMax, IM_COL32(255, 255, 255, 200));
 
-            // Advance cursor past the bar
-            ImGui::Dummy(ImVec2(barW, barH));
-
-            // Max label — pinned to top-right of bar
-            const float lineH = ImGui::GetTextLineHeight();
-            ImGui::SetCursorScreenPos(
-                ImVec2(barMax.x + 4.0f, barMin.y));
-            ImGui::Text("%.3f", scalar_.maxValue);
-
-            // Mid label
-            ImGui::SetCursorScreenPos(
-                ImVec2(barMax.x + 4.0f, barMin.y + barH * 0.5f - lineH * 0.5f));
-            const double mid = scalar_.minValue +
-                (scalar_.maxValue - scalar_.minValue) * 0.5;
-            ImGui::Text("%.3f", mid);
-
-            // Min label — pinned to bottom-right of bar
-            ImGui::SetCursorScreenPos(
-                ImVec2(barMax.x + 4.0f, barMax.y - lineH));
-            ImGui::Text("%.3f", scalar_.minValue);
-
             // Tick marks
-            ld->AddLine(ImVec2(barMax.x, barMin.y + barH * 0.0f),
-                ImVec2(barMax.x + 3.0f, barMin.y + barH * 0.0f),
+            ld->AddLine(ImVec2(barMax.x, barMin.y),
+                ImVec2(barMax.x + 3.0f, barMin.y),
                 IM_COL32(255, 255, 255, 200));
             ld->AddLine(ImVec2(barMax.x, barMin.y + barH * 0.5f),
                 ImVec2(barMax.x + 3.0f, barMin.y + barH * 0.5f),
@@ -443,27 +421,29 @@ namespace CFD::UI {
             ld->AddLine(ImVec2(barMax.x, barMax.y),
                 ImVec2(barMax.x + 3.0f, barMax.y),
                 IM_COL32(255, 255, 255, 200));
+
+            ImGui::Dummy(ImVec2(barW, barH));
+
+            const float lineH = ImGui::GetTextLineHeight();
+            ImGui::SetCursorScreenPos(ImVec2(barMax.x + 4.0f, barMin.y));
+            ImGui::Text("%.3f", scalar_.maxValue);
+
+            const double mid = scalar_.minValue +
+                (scalar_.maxValue - scalar_.minValue) * 0.5;
+            ImGui::SetCursorScreenPos(
+                ImVec2(barMax.x + 4.0f, barMin.y + barH * 0.5f - lineH * 0.5f));
+            ImGui::Text("%.3f", mid);
+
+            ImGui::SetCursorScreenPos(
+                ImVec2(barMax.x + 4.0f, barMax.y - lineH));
+            ImGui::Text("%.3f", scalar_.minValue);
         }
         else {
             ImGui::TextDisabled("Run solver\nto load\nscalar field");
         }
 
         ImGui::EndChild();   // mesh_legend
-
         ImGui::End();        // Mesh Viewport
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  applyAnimFrame  – copy frame data into the live scalar_ struct
-    // ─────────────────────────────────────────────────────────────────────────
-    void MeshEditor2D::applyAnimFrame(int idx)
-    {
-        if (idx < 0 || idx >= static_cast<int>(animFrames_.size())) return;
-        const AnimFrame& f = animFrames_[idx];
-        scalar_.values = f.values;
-        scalar_.minValue = f.minValue;
-        scalar_.maxValue = f.maxValue;
-        scalar_.loaded = true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

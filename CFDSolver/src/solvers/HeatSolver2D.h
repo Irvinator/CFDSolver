@@ -44,12 +44,15 @@ namespace CFD {
         void setSteadyTolerance(double tol);
         void enableSteadyStop(bool enable);
 
+        // ── Public so cfd_app can drive the loop step-by-step ─────────────
+        void step(ConjugateGradient& cg, std::vector<int>& cgIters);
+
         SolverResult run(const std::string& outputDir = "");
 
-        const ScalarField& T() const;
-        double time() const;
-        int steps() const;
-        bool finished() const;
+        const ScalarField& T()        const;
+        double             time()     const;
+        int                steps()    const;
+        bool               finished() const;
 
         void writeCSV(const std::string& filename) const;
 
@@ -76,15 +79,14 @@ namespace CFD {
         ScalarField        T_;
         SparseMatrix       A_;
 
-        void validateInputs() const;
-        void assembleMatrix();
-        Vector buildRHS() const;
-        void step(ConjugateGradient& cg, std::vector<int>& cgIters);
+        void         validateInputs() const;
+        void         assembleMatrix();
+        Vector       buildRHS()       const;
 
         SolverResult validate(SolverResult result) const;
-        bool canValidateLinearXCase() const;
-        void printSetup() const;
-        void printProgress(int cgIters, double cgResidual) const;
+        bool         canValidateLinearXCase()       const;
+        void         printSetup()                   const;
+        void         printProgress(int cgIters, double cgResidual) const;
     };
 
 } // namespace CFD
