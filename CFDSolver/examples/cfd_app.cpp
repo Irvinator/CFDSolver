@@ -62,6 +62,12 @@ int main() {
                     break;
                 ImGui::EndMenu();
             }
+            if (ImGui::BeginMenu("Mesh")) {
+                if (ImGui::MenuItem("Import")) {
+                    break;
+                }
+                ImGui::EndMenu();
+            }
             if (ImGui::BeginMenu("Physics")) {
                 ImGui::MenuItem(
                     "Heat Diffusion");
