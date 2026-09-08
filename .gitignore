@@ -28,3 +28,4 @@ CMakeSettings.json
 # OS
 .DS_Store
 Thumbs.dbvcpkg/ 
+/vcpkg

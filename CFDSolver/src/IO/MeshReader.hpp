@@ -21,7 +21,6 @@ namespace CFD {
         ReadVertex(const ReadVertex& vertex)
             :x(vertex.x), y(vertex.y), z(vertex.z) {
         }
-
     };
 
     struct ReadNormal

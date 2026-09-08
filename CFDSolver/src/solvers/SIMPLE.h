@@ -5,6 +5,7 @@
 #include "BCs/BC.h"
 #include "linearAlgebra/SparseMatrix.hpp"
 #include "linearAlgebra/Vector.hpp"
+#include "linearAlgebra/BiCGSTAB.h"
 
 #include <cstddef>
 #include <vector>
@@ -68,6 +69,8 @@ namespace CFD
         void correctFaceFluxes();
         void correctVelocity();
 
+
+        // Convergence
         double calculateResidual();
         bool checkConvergence();
 
@@ -97,6 +100,8 @@ namespace CFD
         std::size_t getIteration() const;
         double getResidual() const;
 
+
+        // Main solver
         void solve();
     };
 }
