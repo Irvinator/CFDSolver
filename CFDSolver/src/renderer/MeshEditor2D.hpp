@@ -55,6 +55,7 @@ namespace CFD::UI {
         bool domainReady_ = false;
         bool showGrid_ = true;
         bool showColormap_ = true;
+        bool meshImported_ = false;
 
         RectDomain domain_;
         MeshSettings mesh_;

@@ -1,7 +1,3 @@
-/**
- * CFD Solver Application
- * ImGui + OpenGL UI
- */
 #include "renderer/Window.hpp"
 #include "renderer/MeshEditor2D.hpp"
 #include "IO/MeshReader.hpp"
@@ -41,42 +37,63 @@ int main() {
     float progress = 0.0f;
 
     std::cout << "App running!\n";
+
     CFD::UI::MeshEditor2D meshEditor;
+
     while (!window.shouldClose()) {
+
         window.beginFrame();
+
+        // ── Mesh Editor UI ────────────────────
         meshEditor.drawUI();
-        meshEditor.drawViewport();
+
         // ── Menu bar ──────────────────────────
         if (ImGui::BeginMainMenuBar()) {
+
             if (ImGui::BeginMenu("File")) {
+
                 ImGui::MenuItem("New");
+
                 if (ImGui::MenuItem("Open")) {
                     try
                     {
                         loadedMesh =
                             CFD::loadOBJ("test_mesh_for_loading.obj");
 
+                        meshEditor.setMesh(&loadedMesh);
+
                         std::cout << "Mesh loaded!\n";
-                        std::cout << "Vertices: " << loadedMesh.vertices.size() << '\n';
+                        std::cout << "Vertices: "
+                            << loadedMesh.vertices.size() << '\n';
 
-                        std::cout << "Normals: " << loadedMesh.normals.size() << '\n';
+                        std::cout << "Normals: "
+                            << loadedMesh.normals.size() << '\n';
 
-                        std::cout << "Faces: " << loadedMesh.faces.size() << '\n';
+                        std::cout << "Faces: "
+                            << loadedMesh.faces.size() << '\n';
                     }
                     catch (const std::exception& e)
                     {
-                        std::cerr << "Failed to load mesh: " << e.what() << '\n';
+                        std::cerr << "Failed to load mesh: "
+                            << e.what() << '\n';
                     }
-                
-                };
+                }
+
                 ImGui::MenuItem("Save");
+
                 ImGui::Separator();
+
                 if (ImGui::MenuItem("Exit"))
                     break;
+
                 ImGui::EndMenu();
             }
+
+            // ── Mesh menu ──────────────────────
             if (ImGui::BeginMenu("Mesh")) {
+
                 if (ImGui::MenuItem("Import")) {
+
                     nfdchar_t* outPath = nullptr;
 
                     nfdfilteritem_t filterItem = {
@@ -95,58 +112,90 @@ int main() {
                     {
                         try
                         {
-                            loadedMesh = CFD::loadOBJ(outPath);
+                            loadedMesh =
+                                CFD::loadOBJ(outPath);
+
+                            // Give the loaded mesh to MeshEditor2D
+                            meshEditor.setMesh(&loadedMesh);
 
                             std::cout << "Mesh loaded!\n";
-                            std::cout << "Path: " << outPath << '\n';
+                            std::cout << "Path: "
+                                << outPath << '\n';
+
                             std::cout << "Vertices: "
-                                << loadedMesh.vertices.size() << '\n';
+                                << loadedMesh.vertices.size()
+                                << '\n';
+
                             std::cout << "Normals: "
-                                << loadedMesh.normals.size() << '\n';
+                                << loadedMesh.normals.size()
+                                << '\n';
+
                             std::cout << "Faces: "
-                                << loadedMesh.faces.size() << '\n';
+                                << loadedMesh.faces.size()
+                                << '\n';
                         }
                         catch (const std::exception& e)
                         {
-                            std::cerr << "Failed to load mesh: "
-                                << e.what() << '\n';
+                            std::cerr
+                                << "Failed to load mesh: "
+                                << e.what()
+                                << '\n';
                         }
 
                         NFD_FreePath(outPath);
                     }
                     else if (result == NFD_CANCEL)
                     {
-                        std::cout << "Import cancelled.\n";
+                        std::cout
+                            << "Import cancelled.\n";
                     }
                     else
                     {
-                        std::cerr << "File dialog error: "
-                            << NFD_GetError() << '\n';
+                        std::cerr
+                            << "File dialog error: "
+                            << NFD_GetError()
+                            << '\n';
                     }
                 }
+
                 ImGui::EndMenu();
             }
+
+            // ── Physics menu ───────────────────
             if (ImGui::BeginMenu("Physics")) {
+
                 ImGui::MenuItem(
                     "Heat Diffusion");
+
                 ImGui::MenuItem(
                     "Navier-Stokes");
+
                 ImGui::EndMenu();
             }
+
+            // ── Help menu ──────────────────────
             if (ImGui::BeginMenu("Help")) {
+
                 if (ImGui::MenuItem("About"))
                     window.openAbout();
+
                 ImGui::EndMenu();
             }
+
             ImGui::EndMainMenuBar();
         }
-        window.renderAbout();  
+
+        window.renderAbout();
 
         // ── Left toolbar ──────────────────────
         ImGui::SetNextWindowPos({ 0, 20 });
+
         ImGui::SetNextWindowSize(
             { 55, (float)window.height() - 20 });
-        ImGui::Begin("##toolbar", nullptr,
+
+        ImGui::Begin(
+            "##toolbar",
+            nullptr,
             ImGuiWindowFlags_NoTitleBar |
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoScrollbar);
@@ -154,35 +203,59 @@ int main() {
         ImGui::PushStyleColor(
             ImGuiCol_Button,
             { 0.3f, 0.5f, 0.9f, 1.0f });
-        ImGui::Button("GEO\n   ", { 40,50 });
+
+        ImGui::Button(
+            "GEO\n   ",
+            { 40, 50 });
+
         ImGui::PopStyleColor();
+
         ImGui::SetItemTooltip(
             "Geometry Mode");
 
-        ImGui::Button("PHY\n   ", { 40,50 });
+        ImGui::Button(
+            "PHY\n   ",
+            { 40, 50 });
+
         ImGui::SetItemTooltip(
             "Physics Setup");
 
-        ImGui::Button("MSH\n   ", { 40,50 });
-        ImGui::SetItemTooltip("Mesh");
+        ImGui::Button(
+            "MSH\n   ",
+            { 40, 50 });
+
+        ImGui::SetItemTooltip(
+            "Mesh");
 
         ImGui::PushStyleColor(
             ImGuiCol_Button,
             { 0.2f, 0.7f, 0.2f, 1.0f });
-        ImGui::Button("RUN\n   ", { 40,50 });
-        ImGui::PopStyleColor();
-        ImGui::SetItemTooltip("Run Solver");
 
-        ImGui::Button("RES\n   ", { 40,50 });
-        ImGui::SetItemTooltip("Results");
+        ImGui::Button(
+            "RUN\n   ",
+            { 40, 50 });
+
+        ImGui::PopStyleColor();
+
+        ImGui::SetItemTooltip(
+            "Run Solver");
+
+        ImGui::Button(
+            "RES\n   ",
+            { 40, 50 });
+
+        ImGui::SetItemTooltip(
+            "Results");
 
         ImGui::End();
 
         // ── Properties panel ──────────────────
         ImGui::SetNextWindowPos(
             { (float)window.width() - 270, 20 });
+
         ImGui::SetNextWindowSize(
             { 270, (float)window.height() - 20 });
+
         ImGui::Begin("Properties");
 
         ImGui::Text("Physics");
@@ -193,68 +266,116 @@ int main() {
             "Navier-Stokes 2D",
             "Navier-Stokes 3D"
         };
+
         static int physType = 0;
-        ImGui::Combo("##phys",
-            &physType, physics, 3);
+
+        ImGui::Combo(
+            "##phys",
+            &physType,
+            physics,
+            3);
 
         ImGui::Spacing();
+
         ImGui::Text("Material");
         ImGui::Separator();
-        ImGui::InputFloat("Alpha [m2/s]",
-            &alpha, 0, 0, "%.2e");
+
+        ImGui::InputFloat(
+            "Alpha [m2/s]",
+            &alpha,
+            0,
+            0,
+            "%.2e");
 
         ImGui::Spacing();
+
         ImGui::Text("Boundary Conditions");
         ImGui::Separator();
 
         ImGui::PushStyleColor(
             ImGuiCol_FrameBg,
             { 0.4f, 0.1f, 0.1f, 1.0f });
-        ImGui::InputFloat("T hot [K]",
-            &T_hot, 0.1f, 1.0f, "%.2f");
+
+        ImGui::InputFloat(
+            "T hot [K]",
+            &T_hot,
+            0.1f,
+            1.0f,
+            "%.2f");
+
         ImGui::PopStyleColor();
 
         ImGui::PushStyleColor(
             ImGuiCol_FrameBg,
             { 0.1f, 0.2f, 0.4f, 1.0f });
-        ImGui::InputFloat("T cold [K]",
-            &T_cold, 0.1f, 1.0f, "%.2f");
+
+        ImGui::InputFloat(
+            "T cold [K]",
+            &T_cold,
+            0.1f,
+            1.0f,
+            "%.2f");
+
         ImGui::PopStyleColor();
 
         ImGui::Spacing();
+
         ImGui::Text("Mesh");
         ImGui::Separator();
-        ImGui::SliderInt("Cells X",
-            &nx, 10, 200);
-        ImGui::SliderInt("Cells Y",
-            &ny, 10, 200);
-        ImGui::Text("Total: %d cells",
+
+        ImGui::SliderInt(
+            "Cells X",
+            &nx,
+            10,
+            200);
+
+        ImGui::SliderInt(
+            "Cells Y",
+            &ny,
+            10,
+            200);
+
+        ImGui::Text(
+            "Total: %d cells",
             nx * ny);
 
         ImGui::Spacing();
         ImGui::Separator();
 
-        // Run button
+        // ── Run button ────────────────────────
         if (!running) {
+
             ImGui::PushStyleColor(
                 ImGuiCol_Button,
-                { 0.2f,0.7f,0.2f,1.0f });
+                { 0.2f, 0.7f, 0.2f, 1.0f });
+
             if (ImGui::Button(
-                "▶  RUN SOLVER", { -1,45 }))
+                "▶  RUN SOLVER",
+                { -1, 45 }))
+            {
                 running = true;
+            }
+
             ImGui::PopStyleColor();
         }
         else {
+
             ImGui::PushStyleColor(
                 ImGuiCol_Button,
-                { 0.8f,0.2f,0.2f,1.0f });
+                { 0.8f, 0.2f, 0.2f, 1.0f });
+
             if (ImGui::Button(
-                "■  STOP", { -1,45 }))
+                "■  STOP",
+                { -1, 45 }))
+            {
                 running = false;
+            }
+
             ImGui::PopStyleColor();
 
             // Animate progress
             progress += 0.001f;
+
             if (progress > 1.0f) {
                 progress = 0.0f;
                 running = false;
@@ -262,56 +383,92 @@ int main() {
         }
 
         ImGui::Spacing();
+
         ImGui::Text("Progress:");
-        ImGui::ProgressBar(progress,
+
+        ImGui::ProgressBar(
+            progress,
             { -1, 20 });
 
         ImGui::End();
 
         // ── Main viewport ─────────────────────
-        ImGui::SetNextWindowPos({ 55, 20 });
+        ImGui::SetNextWindowPos(
+            { 55, 20 });
+
         ImGui::SetNextWindowSize({
             (float)window.width() - 325,
-            (float)window.height() - 80 });
-        ImGui::Begin("Viewport", nullptr,
+            (float)window.height() - 80
+            });
+
+        ImGui::Begin(
+            "Viewport",
+            nullptr,
             ImGuiWindowFlags_NoScrollbar);
 
-        // Placeholder text
+        // Existing placeholder
         ImVec2 size =
             ImGui::GetContentRegionAvail();
+
         ImVec2 centre = {
             ImGui::GetCursorPosX() +
             size.x * 0.5f - 150,
+
             ImGui::GetCursorPosY() +
             size.y * 0.5f - 30
         };
 
         ImGui::SetCursorPos(centre);
+
         ImGui::TextDisabled(
             "OpenGL viewport renders here");
-        ImGui::SetCursorPosX(centre.x + 20);
+
+        ImGui::SetCursorPosX(
+            centre.x + 20);
+
         ImGui::TextDisabled(
             "Heat map / streamlines");
 
         ImGui::End();
 
+        // ── Mesh Editor viewport ──────────────
+        // This calls MeshEditor2D::drawViewport()
+        // and therefore renders the imported OBJ.
+        meshEditor.drawViewport();
+
         // ── Bottom timeline ───────────────────
         ImGui::SetNextWindowPos({
             55,
-            (float)window.height() - 60 });
+            (float)window.height() - 60
+            });
+
         ImGui::SetNextWindowSize({
-            (float)window.width() - 325, 60 });
-        ImGui::Begin("##timeline", nullptr,
+            (float)window.width() - 325,
+            60
+            });
+
+        ImGui::Begin(
+            "##timeline",
+            nullptr,
             ImGuiWindowFlags_NoTitleBar |
             ImGuiWindowFlags_NoResize);
 
         ImGui::Text("t = 0.0s");
+
         ImGui::SameLine();
+
         ImGui::SetNextItemWidth(
             window.width() - 500.0f);
-        ImGui::SliderFloat("##tslider",
-            &progress, 0.0f, 1.0f, "");
+
+        ImGui::SliderFloat(
+            "##tslider",
+            &progress,
+            0.0f,
+            1.0f,
+            "");
+
         ImGui::SameLine();
+
         ImGui::Text("t = 100.0s");
 
         ImGui::End();
@@ -321,5 +478,6 @@ int main() {
 
     NFD_Quit();
     window.cleanup();
+
     return 0;
 }

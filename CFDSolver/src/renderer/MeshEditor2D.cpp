@@ -38,6 +38,9 @@ namespace CFD::UI {
     void MeshEditor2D::setMesh(CFD::OBJMesh* mesh)
     {
         importedMesh_ = mesh;
+        meshImported_ =
+            importedMesh_ != nullptr &&
+            !importedMesh_->vertices.empty();
     }
 
     void MeshEditor2D::drawUI()
