@@ -1,12 +1,13 @@
 /**
  * CFD Solver Application
- * ImGui + OpenGL UI  –  with real-time heat-diffusion animation
+ * ImGui + OpenGL UI  –  with real-time heat-diffusion animation + OBJ import
  */
 #include "renderer/Window.hpp"
 #include "renderer/MeshEditor2D.hpp"
 #include "solvers/HeatSolver2D.h"
 #include "linearAlgebra/ConjugateGradient.hpp"
 #include "mesh/mesh2D.h"
+#include "IO/MeshReader.hpp"
 
 #include <imgui.h>
 #include <iostream>
@@ -17,7 +18,10 @@
 #include <atomic>
 #include <deque>
 
- // ── Thread-safe frame queue ───────────────────────────────────────────────────
+ // ── NFD (native file dialog) ──────────────────────────────────────────────────
+#include <nfd.h>
+
+// ── Thread-safe frame queue ───────────────────────────────────────────────────
 struct PendingFrame {
     std::vector<double> values;
     double              time = 0.0;
@@ -31,9 +35,7 @@ static std::atomic<bool>        g_solverRunning{ false };
 static std::atomic<float>       g_solverProgress{ 0.0f };
 static std::atomic<bool>        g_solverError{ false };
 static std::string              g_solverErrorMsg;
-
-// ── Auto animation speed written by solver thread, read by main ──────────────
-static std::atomic<float>       g_suggestedAnimSpeed{ 0.0f }; // 0 = not set yet
+static std::atomic<float>       g_suggestedAnimSpeed{ 0.0f };
 
 // ── Solver thread ─────────────────────────────────────────────────────────────
 static void solverThread(
@@ -53,14 +55,13 @@ static void solverThread(
         const double dy = height / static_cast<double>(meshNy);
         const double dMin = std::min(dx, dy);
 
-        // ── Aggressive dt: Fo = 5.0  (implicit CG is unconditionally stable)
-        // Larger Fo = fewer steps = faster solve, same accuracy at steady state
+        // Large Fourier number — implicit solver is unconditionally stable
         const double Fo_target = 5.0;
         const double dt = Fo_target * dMin * dMin / alpha;
 
-        // Run for 1.5× the diffusion time scale  L²/alpha
+        // Run for ~2 diffusion time scales
         const double L = std::max(width, height);
-        const double tEnd = 1.5 * L * L / alpha;
+        const double tEnd = 2.0 * L * L / alpha;
 
         CFD::HeatSolver2D solver(mesh, alpha, dt, tEnd);
 
@@ -74,17 +75,16 @@ static void solverThread(
         solver.setIC(T_cold);
         solver.setOutputFreq(50);
         solver.enableSteadyStop(true);
-        solver.setSteadyTolerance(1.0e-6);   // slightly looser → stops sooner
+        solver.setSteadyTolerance(1.0e-6);
 
-        // Target exactly 50 animation frames
+        // Target ~50 animation frames
         const int targetFrames = 50;
         const int estimatedSteps = static_cast<int>(std::ceil(tEnd / dt));
         const int recordEvery = std::max(1, estimatedSteps / targetFrames);
 
-        CFD::ConjugateGradient cg(1e-8, 5000);  // looser tol → fewer CG iters
+        CFD::ConjugateGradient cg(1e-8, 5000);
         std::vector<int> cgIters;
 
-        // Collect raw snapshots first, then push with global min/max
         struct RawFrame { std::vector<double> values; double time = 0.0; };
         std::vector<RawFrame> rawFrames;
         rawFrames.reserve(targetFrames + 4);
@@ -114,14 +114,13 @@ static void solverThread(
 
         if (globalMax <= globalMin) globalMax = globalMin + 1.0;
 
-        // ── Compute auto animation speed ──────────────────────────────────
-        // Always play back in ~8 wall-clock seconds regardless of frame count
+        // Auto animation speed: play all frames in ~8 seconds
         const int   nFrames = static_cast<int>(rawFrames.size());
         const float desiredPlaySecs = 8.0f;
         const float autoSpeed = static_cast<float>(nFrames) / desiredPlaySecs;
         g_suggestedAnimSpeed = std::clamp(autoSpeed, 1.0f, 60.0f);
 
-        // Push all frames into the shared queue
+        // Push all frames into the queue with the GLOBAL colour scale
         {
             std::lock_guard<std::mutex> lock(g_frameMutex);
             for (auto& rf : rawFrames) {
@@ -153,10 +152,20 @@ int main()
         return -1;
     }
 
+    // ── NFD init ──────────────────────────────────────────────────────────────
+    if (NFD_Init() != NFD_OKAY) {
+        std::cerr << "NFD init failed: " << NFD_GetError() << '\n';
+        window.cleanup();
+        return -1;
+    }
+
     float alpha = 1e-4f;
     float T_hot = 1.0f;
     float T_cold = 0.0f;
     int   nx = 50, ny = 50;
+
+    // Loaded OBJ mesh – owned here, pointer shared with meshEditor
+    CFD::OBJMesh loadedMesh;
 
     CFD::UI::MeshEditor2D meshEditor;
     meshEditor.showEditorWindow(false);
@@ -168,7 +177,7 @@ int main()
     {
         window.beginFrame();
 
-        // ── Drain frame queue into meshEditor (main thread only) ──────────
+        // ── Drain frame queue (main thread only) ──────────────────────────
         {
             std::lock_guard<std::mutex> lock(g_frameMutex);
             while (!g_frameQueue.empty()) {
@@ -179,7 +188,7 @@ int main()
             }
         }
 
-        // ── Apply suggested animation speed once solver finishes ──────────
+        // Apply suggested animation speed once solver finishes
         {
             const float spd = g_suggestedAnimSpeed.exchange(0.0f);
             if (spd > 0.0f)
@@ -188,13 +197,14 @@ int main()
 
         // ── Menu bar ──────────────────────────────────────────────────────
         if (ImGui::BeginMainMenuBar()) {
+
             if (ImGui::BeginMenu("File")) {
                 ImGui::MenuItem("New");
-                ImGui::MenuItem("Open");
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) break;
                 ImGui::EndMenu();
             }
+
             if (ImGui::BeginMenu("View")) {
                 bool showEditor = meshEditor.isEditorWindowVisible();
                 bool showViewport = meshEditor.isViewportWindowVisible();
@@ -204,10 +214,56 @@ int main()
                     meshEditor.showViewportWindow(!showViewport);
                 ImGui::EndMenu();
             }
+
+            if (ImGui::BeginMenu("Mesh")) {
+                // ── Import OBJ via native file dialog ─────────────────────
+                if (ImGui::MenuItem("Import OBJ...")) {
+                    nfdchar_t* outPath = nullptr;
+                    nfdfilteritem_t filter = { "OBJ Files", "obj" };
+                    nfdresult_t     result =
+                        NFD_OpenDialog(&outPath, &filter, 1, nullptr);
+
+                    if (result == NFD_OKAY) {
+                        try {
+                            loadedMesh = CFD::loadOBJ(outPath);
+                            meshEditor.setMesh(&loadedMesh);
+                            meshEditor.showViewportWindow(true);
+
+                            std::cout << "OBJ loaded: " << outPath << '\n'
+                                << "  Vertices : "
+                                << loadedMesh.vertices.size() << '\n'
+                                << "  Faces    : "
+                                << loadedMesh.faces.size() << '\n';
+                        }
+                        catch (const std::exception& e) {
+                            std::cerr << "Failed to load OBJ: "
+                                << e.what() << '\n';
+                        }
+                        NFD_FreePath(outPath);
+                    }
+                    else if (result == NFD_CANCEL) {
+                        std::cout << "Import cancelled.\n";
+                    }
+                    else {
+                        std::cerr << "NFD error: " << NFD_GetError() << '\n';
+                    }
+                }
+
+                // ── Clear loaded mesh ─────────────────────────────────────
+                if (ImGui::MenuItem("Clear Mesh", nullptr, false,
+                    meshEditor.hasMesh()))
+                {
+                    meshEditor.setMesh(nullptr);
+                }
+
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("Help")) {
                 if (ImGui::MenuItem("About")) window.openAbout();
                 ImGui::EndMenu();
             }
+
             ImGui::EndMainMenuBar();
         }
         window.renderAbout();
@@ -218,7 +274,8 @@ int main()
 
         // ── Left toolbar ──────────────────────────────────────────────────
         ImGui::SetNextWindowPos({ 0, 20 });
-        ImGui::SetNextWindowSize({ 55, static_cast<float>(window.height()) - 20 });
+        ImGui::SetNextWindowSize(
+            { 55, static_cast<float>(window.height()) - 20 });
         ImGui::Begin("##toolbar", nullptr,
             ImGuiWindowFlags_NoTitleBar |
             ImGuiWindowFlags_NoResize |
@@ -244,10 +301,10 @@ int main()
         ImGui::End();
 
         // ── Right properties panel ────────────────────────────────────────
-        ImGui::SetNextWindowPos({
-            static_cast<float>(window.width()) - 270, 20 });
-        ImGui::SetNextWindowSize({
-            270, static_cast<float>(window.height()) - 20 });
+        ImGui::SetNextWindowPos(
+            { static_cast<float>(window.width()) - 270, 20 });
+        ImGui::SetNextWindowSize(
+            { 270, static_cast<float>(window.height()) - 20 });
         ImGui::Begin("Properties");
 
         ImGui::Text("Physics");
@@ -282,42 +339,39 @@ int main()
         ImGui::Spacing();
         ImGui::Separator();
 
-        const bool solverBusy = g_solverRunning.load();
+        const bool solverRunning = g_solverRunning.load();
 
-        if (!solverBusy) {
+        if (!solverRunning) {
             ImGui::PushStyleColor(ImGuiCol_Button, { 0.2f, 0.7f, 0.2f, 1.0f });
             if (ImGui::Button("▶  RUN SOLVER", { -1, 45 }))
             {
-                meshEditor.clearAnimation();
-                meshEditor.showViewportWindow(true);
+                if (!g_solverRunning.exchange(true)) {
+                    meshEditor.clearAnimation();
+                    meshEditor.clearScalarField();
+                    meshEditor.showViewportWindow(true);
 
-                const auto   settings = meshEditor.meshSettings();
-                const double width = settings.width;
-                const double height = settings.height;
-                const int    meshNx = settings.nx;
-                const int    meshNy = settings.ny;
-
-                g_solverRunning = true;
-                g_solverProgress = 0.0f;
-
-                std::thread(solverThread,
-                    meshNx, meshNy, width, height,
-                    static_cast<double>(alpha),
-                    static_cast<double>(T_hot),
-                    static_cast<double>(T_cold)).detach();
+                    const auto   settings = meshEditor.meshSettings();
+                    std::thread(solverThread,
+                        settings.nx, settings.ny,
+                        settings.width, settings.height,
+                        static_cast<double>(alpha),
+                        static_cast<double>(T_hot),
+                        static_cast<double>(T_cold)).detach();
+                }
             }
             ImGui::PopStyleColor();
-
-            if (g_solverError) {
-                ImGui::TextColored({ 1,0.3f,0.3f,1 },
-                    "Error: %s", g_solverErrorMsg.c_str());
-            }
         }
         else {
             ImGui::PushStyleColor(ImGuiCol_Button, { 0.8f, 0.2f, 0.2f, 1.0f });
             if (ImGui::Button("■  STOP", { -1, 45 }))
                 g_solverRunning = false;
             ImGui::PopStyleColor();
+        }
+
+        // Solver error display
+        if (g_solverError) {
+            ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1),
+                "Error: %s", g_solverErrorMsg.c_str());
         }
 
         ImGui::Spacing();
@@ -337,15 +391,19 @@ int main()
         const ImVec2 centre = {
             ImGui::GetCursorPosX() + size.x * 0.5f - 150,
             ImGui::GetCursorPosY() + size.y * 0.5f - 30 };
+
         ImGui::SetCursorPos(centre);
         ImGui::TextDisabled("OpenGL viewport renders here");
         ImGui::SetCursorPosX(centre.x + 20);
-        ImGui::TextDisabled(meshEditor.hasScalarField()
-            ? "Showing real heat map in Mesh Viewport"
+        ImGui::TextDisabled(meshEditor.hasMesh()
+            ? "OBJ mesh loaded — see Mesh Viewport"
+            : meshEditor.hasScalarField()
+            ? "Heat map active — see Mesh Viewport"
             : "Heat map / streamlines");
+
         ImGui::End();
 
-        // ── Bottom timeline ───────────────────────────────────────────────
+        // ── Bottom timeline — drives animation frame ──────────────────────
         ImGui::SetNextWindowPos({
             55, static_cast<float>(window.height()) - 60 });
         ImGui::SetNextWindowSize({
@@ -362,7 +420,8 @@ int main()
             int frameIdx = meshEditor.currentAnimFrame();
             ImGui::SetNextItemWidth(
                 static_cast<float>(window.width()) - 500.0f);
-            if (ImGui::SliderInt("##tslider", &frameIdx, 0, totalFrames - 1, ""))
+            if (ImGui::SliderInt("##tslider", &frameIdx,
+                0, totalFrames - 1, ""))
                 meshEditor.setAnimFrame(frameIdx);
 
             ImGui::SameLine();
@@ -389,7 +448,8 @@ int main()
         window.endFrame();
     }
 
-    g_solverRunning = false;   // signal background thread to stop
+    g_solverRunning = false;   // signal thread to stop if still running
+    NFD_Quit();
     window.cleanup();
     return 0;
 }

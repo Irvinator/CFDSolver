@@ -1,6 +1,7 @@
 #pragma once
 
 #include "solvers/HeatSolver2D.h"   // brings in CFD::ScalarField
+#include "IO/MeshReader.hpp"         // brings in CFD::OBJMesh
 
 #include <imgui.h>
 #include <vector>
@@ -78,6 +79,14 @@ namespace CFD::UI {
             animSpeed_ = std::clamp(fps, 0.5f, 60.0f);
         }
 
+        // ── OBJ mesh import ───────────────────────────────────────────────
+        // Pass a pointer to a loaded OBJMesh; pass nullptr to clear.
+        void setMesh(CFD::OBJMesh* mesh);
+        bool hasMesh() const {
+            return importedMesh_ != nullptr &&
+                !importedMesh_->vertices.empty();
+        }
+
         // ── Accessors ─────────────────────────────────────────────────────
         const RectDomain& domain()       const { return domain_; }
         bool               domainReady()  const { return domainReady_; }
@@ -94,6 +103,7 @@ namespace CFD::UI {
 
         void applyAnimFrame(int idx);
         void centreView(ImVec2 canvasSize);
+        void centreOBJView(ImVec2 canvasSize);   // fits OBJ into canvas
 
         // ── State ─────────────────────────────────────────────────────────
         bool showEditorWindow_ = true;
@@ -122,9 +132,23 @@ namespace CFD::UI {
         std::vector<AnimFrame> animFrames_;
         int   animFrame_ = 0;
         bool  animPlaying_ = false;
-        bool  animLoop_ = true;      // ← new: loop toggle
+        bool  animLoop_ = true;
         float animSpeed_ = 10.0f;
         float animAccum_ = 0.0f;
+
+        // ── OBJ mesh (non-owning pointer — owned by cfd_app) ──────────────
+        CFD::OBJMesh* importedMesh_ = nullptr;
+
+        // OBJ viewport state — separate pan/zoom from rect domain
+        float objPanX_ = 0.0f;
+        float objPanY_ = 0.0f;
+        float objZoom_ = 1.0f;
+        bool  objCentreRequested_ = true;  // auto-centre on first load
+
+        // cached OBJ bounding box (recomputed when mesh changes)
+        float objMinX_ = 0.0f, objMaxX_ = 1.0f;
+        float objMinY_ = 0.0f, objMaxY_ = 1.0f;
+        bool  objBBoxDirty_ = true;
     };
 
 } // namespace CFD::UI
