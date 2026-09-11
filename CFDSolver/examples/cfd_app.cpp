@@ -1,4 +1,3 @@
-
 /**
  * CFD Solver Application
  * ImGui + OpenGL UI
@@ -41,12 +40,33 @@
  // RESULT FRAME
  // ================================================================
 
-    struct PendingFrame
+struct PendingFrame
 {
+    // Heat
     std::vector<double> values;
+
+    // Navier-Stokes
+    std::vector<double> pressure;
+    std::vector<double> velocityU;
+    std::vector<double> velocityV;
+
     double time = 0.0;
+
+    // Heat
     double globalMin = 0.0;
     double globalMax = 1.0;
+
+    // Navier-Stokes
+    double pressureMin = 0.0;
+    double pressureMax = 1.0;
+
+    double velocityUMin = 0.0;
+    double velocityUMax = 1.0;
+
+    double velocityVMin = 0.0;
+    double velocityVMax = 1.0;
+
+    bool navierStokes = false;
 };
 
 
@@ -58,15 +78,20 @@ static std::mutex g_frameMutex;
 
 static std::deque<PendingFrame> g_frameQueue;
 
-static std::atomic<bool> g_solverRunning{ false };
+static std::atomic<bool>
+g_solverRunning{ false };
 
-static std::atomic<float> g_solverProgress{ 0.0f };
+static std::atomic<float>
+g_solverProgress{ 0.0f };
 
-static std::atomic<bool> g_solverError{ false };
+static std::atomic<bool>
+g_solverError{ false };
 
-static std::string g_solverErrorMsg;
+static std::string
+g_solverErrorMsg;
 
-static std::atomic<float> g_suggestedAnimSpeed{ 0.0f };
+static std::atomic<float>
+g_suggestedAnimSpeed{ 0.0f };
 
 
 // ================================================================
@@ -105,7 +130,8 @@ static void heatSolverThread(
         const double dMin =
             std::min(dx, dy);
 
-        const double Fo_target = 5.0;
+        const double Fo_target =
+            5.0;
 
         const double dt =
             Fo_target *
@@ -114,7 +140,9 @@ static void heatSolverThread(
             alpha;
 
         const double L =
-            std::max(width, height);
+            std::max(
+                width,
+                height);
 
         const double tEnd =
             2.0 *
@@ -122,21 +150,11 @@ static void heatSolverThread(
             L /
             alpha;
 
-
-        // ------------------------------------------------------------
-        // Create heat solver
-        // ------------------------------------------------------------
-
         CFD::HeatSolver2D solver(
             mesh,
             alpha,
             dt,
             tEnd);
-
-
-        // ------------------------------------------------------------
-        // Boundary conditions
-        // ------------------------------------------------------------
 
         CFD::HeatSolver2D::BoundaryConditions bcs;
 
@@ -153,24 +171,25 @@ static void heatSolverThread(
 
         solver.enableSteadyStop(true);
 
-        solver.setSteadyTolerance(1.0e-6);
-
+        solver.setSteadyTolerance(
+            1.0e-6);
 
         // ------------------------------------------------------------
-        // Animation settings
+        // Heat animation
         // ------------------------------------------------------------
 
         const int targetFrames = 50;
 
         const int estimatedSteps =
             static_cast<int>(
-                std::ceil(tEnd / dt));
+                std::ceil(
+                    tEnd / dt));
 
         const int recordEvery =
             std::max(
                 1,
-                estimatedSteps / targetFrames);
-
+                estimatedSteps /
+                targetFrames);
 
         CFD::ConjugateGradient cg(
             1e-8,
@@ -178,24 +197,22 @@ static void heatSolverThread(
 
         std::vector<int> cgIters;
 
-
         struct RawFrame
         {
             std::vector<double> values;
             double time = 0.0;
         };
 
-
         std::vector<RawFrame> rawFrames;
 
         rawFrames.reserve(
             targetFrames + 4);
 
+        double globalMin =
+            1e30;
 
-        double globalMin = 1e30;
-
-        double globalMax = -1e30;
-
+        double globalMax =
+            -1e30;
 
         // ------------------------------------------------------------
         // Solve
@@ -209,9 +226,9 @@ static void heatSolverThread(
                 cg,
                 cgIters);
 
-
             if (
-                solver.steps() % recordEvery == 0 ||
+                solver.steps() %
+                recordEvery == 0 ||
                 solver.steps() == 1)
             {
                 const CFD::ScalarField& T =
@@ -222,12 +239,13 @@ static void heatSolverThread(
                 rf.values.resize(
                     T.size());
 
-
-                for (std::size_t k = 0;
+                for (
+                    std::size_t k = 0;
                     k < T.size();
                     ++k)
                 {
-                    rf.values[k] = T[k];
+                    rf.values[k] =
+                        T[k];
 
                     globalMin =
                         std::min(
@@ -240,48 +258,39 @@ static void heatSolverThread(
                             T[k]);
                 }
 
-
                 rf.time =
                     solver.time();
-
 
                 rawFrames.push_back(
                     std::move(rf));
             }
-
 
             if (tEnd > 0.0)
             {
                 g_solverProgress =
                     static_cast<float>(
                         std::min(
-                            solver.time() / tEnd,
+                            solver.time() /
+                            tEnd,
                             1.0));
             }
         }
 
-
-        // ------------------------------------------------------------
-        // Prepare animation
-        // ------------------------------------------------------------
-
         if (globalMax <= globalMin)
-            globalMax = globalMin + 1.0;
-
+            globalMax =
+            globalMin + 1.0;
 
         const int nFrames =
             static_cast<int>(
                 rawFrames.size());
 
-
         const float desiredPlaySecs =
             8.0f;
 
-
         const float autoSpeed =
-            static_cast<float>(nFrames) /
+            static_cast<float>(
+                nFrames) /
             desiredPlaySecs;
-
 
         g_suggestedAnimSpeed =
             std::clamp(
@@ -289,22 +298,21 @@ static void heatSolverThread(
                 1.0f,
                 60.0f);
 
-
         // ------------------------------------------------------------
-        // Send frames to GUI
+        // Send heat frames
         // ------------------------------------------------------------
 
         {
-            std::lock_guard<std::mutex> lock(
-                g_frameMutex);
-
+            std::lock_guard<std::mutex>
+                lock(g_frameMutex);
 
             for (auto& rf : rawFrames)
             {
                 PendingFrame pf;
 
                 pf.values =
-                    std::move(rf.values);
+                    std::move(
+                        rf.values);
 
                 pf.time =
                     rf.time;
@@ -315,22 +323,23 @@ static void heatSolverThread(
                 pf.globalMax =
                     globalMax;
 
+                pf.navierStokes =
+                    false;
 
                 g_frameQueue.push_back(
                     std::move(pf));
             }
         }
 
-
         g_solverProgress = 1.0f;
     }
     catch (const std::exception& e)
     {
-        g_solverErrorMsg = e.what();
+        g_solverErrorMsg =
+            e.what();
 
         g_solverError = true;
     }
-
 
     g_solverRunning = false;
 }
@@ -367,7 +376,6 @@ static void navierStokesSolverThread(
             width,
             height);
 
-
         // ============================================================
         // CREATE STAGGERED FIELDS
         // ============================================================
@@ -380,7 +388,6 @@ static void navierStokesSolverThread(
             0.0,
             0.0,
             0.0);
-
 
         // ============================================================
         // BOUNDARY CONDITIONS
@@ -402,17 +409,14 @@ static void navierStokesSolverThread(
             CFD::BoundarySide::west,
             CFD::BoundaryType::Inlet);
 
-
         // Inlet velocity
         westBC.setVelocity(
             inletU,
             inletV);
 
-
         // Outlet pressure
         eastBC.setPressure(
             outletPressure);
-
 
         // No-slip walls
         northBC.setVelocity(
@@ -422,7 +426,6 @@ static void navierStokesSolverThread(
         southBC.setVelocity(
             0.0,
             0.0);
-
 
         // ============================================================
         // CREATE SIMPLE SOLVER
@@ -436,7 +439,6 @@ static void navierStokesSolverThread(
             eastBC,
             westBC);
 
-
         // ============================================================
         // SOLVER SETTINGS
         // ============================================================
@@ -445,14 +447,17 @@ static void navierStokesSolverThread(
 
         solver.setViscosity(mu);
 
-        solver.setPressureRelaxation(0.3);
+        solver.setPressureRelaxation(
+            0.3);
 
-        solver.setVelocityRelaxation(0.7);
+        solver.setVelocityRelaxation(
+            0.7);
 
-        solver.setConvergenceTolerance(0.16);
+        solver.setConvergenceTolerance(
+            0.16);
 
-        solver.setMaxIterations(200);
-
+        solver.setMaxIterations(
+            200);
 
         std::cout
             << "\n========================================\n"
@@ -498,37 +503,42 @@ static void navierStokesSolverThread(
             << outletPressure
             << '\n';
 
-
         // ============================================================
-        // ANIMATION STORAGE
-        //
-        // IMPORTANT:
-        //
-        // EVERY SIMPLE ITERATION IS NOW RECORDED.
-        //
-        // Iteration 1  -> frame 1
-        // Iteration 2  -> frame 2
-        // Iteration 3  -> frame 3
-        // ...
+        // EVERY SIMPLE ITERATION IS RECORDED
         // ============================================================
 
         struct RawFrame
         {
-            std::vector<double> values;
+            std::vector<double> pressure;
+            std::vector<double> velocityU;
+            std::vector<double> velocityV;
+
             double time = 0.0;
         };
-
 
         std::vector<RawFrame> rawFrames;
 
         rawFrames.reserve(
             solver.getMaxIterations());
 
+        // Global ranges for each variable
+        double pressureMin =
+            1.0e30;
 
-        double globalMin = 1.0e30;
+        double pressureMax =
+            -1.0e30;
 
-        double globalMax = -1.0e30;
+        double velocityUMin =
+            1.0e30;
 
+        double velocityUMax =
+            -1.0e30;
+
+        double velocityVMin =
+            1.0e30;
+
+        double velocityVMax =
+            -1.0e30;
 
         // ============================================================
         // SIMPLE ITERATIONS
@@ -539,29 +549,28 @@ static void navierStokesSolverThread(
             g_solverRunning)
         {
             // --------------------------------------------------------
-            // Perform EXACTLY ONE SIMPLE iteration
+            // Perform exactly ONE SIMPLE iteration
             // --------------------------------------------------------
 
             solver.step();
 
-
             // --------------------------------------------------------
-            // RECORD THIS ITERATION
-            //
-            // There is deliberately NO recordEvery condition here.
-            // Every iteration becomes an animation frame.
+            // Record pressure + U + V
             // --------------------------------------------------------
 
             RawFrame rf;
 
-            rf.values.resize(
+            rf.pressure.resize(
                 static_cast<std::size_t>(
                     meshNx * meshNy));
 
+            rf.velocityU.resize(
+                static_cast<std::size_t>(
+                    meshNx * meshNy));
 
-            // --------------------------------------------------------
-            // Convert staggered U/V to cell-centred velocity magnitude
-            // --------------------------------------------------------
+            rf.velocityV.resize(
+                static_cast<std::size_t>(
+                    meshNx * meshNy));
 
             for (int j = 0;
                 j < meshNy;
@@ -571,11 +580,36 @@ static void navierStokesSolverThread(
                     i < meshNx;
                     ++i)
                 {
+                    // ------------------------------------------------
+                    // Pressure is already cell-centred
+                    // ------------------------------------------------
+
+                    const double pCell =
+                        fields.p(i, j);
+
+                    // ------------------------------------------------
+                    // U is staggered:
+                    //
+                    // west face = u(i,j)
+                    // east face = u(i+1,j)
+                    // ------------------------------------------------
+
                     const double uWest =
                         fields.u(i, j);
 
                     const double uEast =
                         fields.u(i + 1, j);
+
+                    const double uCell =
+                        0.5 *
+                        (uWest + uEast);
+
+                    // ------------------------------------------------
+                    // V is staggered:
+                    //
+                    // south face = v(i,j)
+                    // north face = v(i,j+1)
+                    // ------------------------------------------------
 
                     const double vSouth =
                         fields.v(i, j);
@@ -583,62 +617,69 @@ static void navierStokesSolverThread(
                     const double vNorth =
                         fields.v(i, j + 1);
 
-
-                    const double uCell =
-                        0.5 *
-                        (uWest + uEast);
-
                     const double vCell =
                         0.5 *
                         (vSouth + vNorth);
-
-
-                    const double velocityMagnitude =
-                        std::sqrt(
-                            uCell * uCell +
-                            vCell * vCell);
-
 
                     const std::size_t index =
                         static_cast<std::size_t>(
                             j * meshNx + i);
 
+                    rf.pressure[index] =
+                        pCell;
 
-                    rf.values[index] =
-                        velocityMagnitude;
+                    rf.velocityU[index] =
+                        uCell;
 
+                    rf.velocityV[index] =
+                        vCell;
 
-                    globalMin =
+                    // ------------------------------------------------
+                    // Global ranges
+                    // ------------------------------------------------
+
+                    pressureMin =
                         std::min(
-                            globalMin,
-                            velocityMagnitude);
+                            pressureMin,
+                            pCell);
 
-                    globalMax =
+                    pressureMax =
                         std::max(
-                            globalMax,
-                            velocityMagnitude);
+                            pressureMax,
+                            pCell);
+
+                    velocityUMin =
+                        std::min(
+                            velocityUMin,
+                            uCell);
+
+                    velocityUMax =
+                        std::max(
+                            velocityUMax,
+                            uCell);
+
+                    velocityVMin =
+                        std::min(
+                            velocityVMin,
+                            vCell);
+
+                    velocityVMax =
+                        std::max(
+                            velocityVMax,
+                            vCell);
                 }
             }
 
-
             // --------------------------------------------------------
-            // Animation time = SIMPLE iteration
-            //
-            // This is deliberately NOT physical time.
-            //
-            // t = 1 -> iteration 1
-            // t = 2 -> iteration 2
-            // ...
+            // Timeline is SIMPLE iteration number
             // --------------------------------------------------------
 
             rf.time =
                 static_cast<double>(
                     solver.getIteration());
 
-
             rawFrames.push_back(
                 std::move(rf));
-
 
             // --------------------------------------------------------
             // Progress
@@ -646,8 +687,7 @@ static void navierStokesSolverThread(
 
             const float progress =
                 static_cast<float>(
-                    solver.getIteration())
-                /
+                    solver.getIteration()) /
                 static_cast<float>(
                     solver.getMaxIterations());
 
@@ -657,7 +697,6 @@ static void navierStokesSolverThread(
                     0.0f,
                     1.0f);
         }
-
 
         // ============================================================
         // STOPPED BEFORE ANY ITERATION
@@ -672,46 +711,37 @@ static void navierStokesSolverThread(
             return;
         }
 
-
         // ============================================================
-        // VALIDATE GLOBAL COLOUR SCALE
+        // VALIDATE RANGES
         // ============================================================
 
-        if (globalMax <= globalMin)
-        {
-            globalMax =
-                globalMin + 1.0;
-        }
+        if (pressureMax <= pressureMin)
+            pressureMax =
+            pressureMin + 1.0;
 
+        if (velocityUMax <= velocityUMin)
+            velocityUMax =
+            velocityUMin + 1.0;
+
+        if (velocityVMax <= velocityVMin)
+            velocityVMax =
+            velocityVMin + 1.0;
 
         // ============================================================
         // ANIMATION SPEED
-        //
-        // Show the complete iteration history over approximately
-        // 8 seconds.
-        //
-        // Example:
-        //
-        // 40 iterations -> 5 frames/sec
-        // 100 iterations -> 12.5 frames/sec
-        // 1000 iterations -> 125 frames/sec, clamped to 60
         // ============================================================
 
         const int nFrames =
             static_cast<int>(
                 rawFrames.size());
 
-
         const float desiredPlaySecs =
             8.0f;
 
-
         const float autoSpeed =
             static_cast<float>(
-                nFrames)
-            /
+                nFrames) /
             desiredPlaySecs;
-
 
         g_suggestedAnimSpeed =
             std::clamp(
@@ -719,39 +749,58 @@ static void navierStokesSolverThread(
                 1.0f,
                 60.0f);
 
-
         // ============================================================
-        // SEND ALL FRAMES TO GUI
+        // SEND ALL NAVIER-STOKES FRAMES
         // ============================================================
 
         {
-            std::lock_guard<std::mutex> lock(
-                g_frameMutex);
-
+            std::lock_guard<std::mutex>
+                lock(g_frameMutex);
 
             for (auto& rf : rawFrames)
             {
                 PendingFrame pf;
 
-                pf.values =
+                pf.pressure =
                     std::move(
-                        rf.values);
+                        rf.pressure);
+
+                pf.velocityU =
+                    std::move(
+                        rf.velocityU);
+
+                pf.velocityV =
+                    std::move(
+                        rf.velocityV);
 
                 pf.time =
                     rf.time;
 
-                pf.globalMin =
-                    globalMin;
+                pf.pressureMin =
+                    pressureMin;
 
-                pf.globalMax =
-                    globalMax;
+                pf.pressureMax =
+                    pressureMax;
 
+                pf.velocityUMin =
+                    velocityUMin;
+
+                pf.velocityUMax =
+                    velocityUMax;
+
+                pf.velocityVMin =
+                    velocityVMin;
+
+                pf.velocityVMax =
+                    velocityVMax;
+
+                pf.navierStokes =
+                    true;
 
                 g_frameQueue.push_back(
                     std::move(pf));
             }
         }
-
 
         // ============================================================
         // RESULTS
@@ -777,7 +826,6 @@ static void navierStokesSolverThread(
             << rawFrames.size()
             << '\n';
 
-
         g_solverProgress = 1.0f;
     }
     catch (const std::exception& e)
@@ -788,9 +836,9 @@ static void navierStokesSolverThread(
         g_solverError = true;
     }
 
-
     g_solverRunning = false;
 }
+
 
 // ================================================================
 // MAIN
@@ -803,7 +851,6 @@ int main()
         720,
         "CFD Solver");
 
-
     if (!window.init())
     {
         std::cerr
@@ -811,7 +858,6 @@ int main()
 
         return -1;
     }
-
 
     if (NFD_Init() != NFD_OKAY)
     {
@@ -825,32 +871,37 @@ int main()
         return -1;
     }
 
-
     // ================================================================
     // HEAT SETTINGS
     // ================================================================
 
-    float alpha = 1e-4f;
+    float alpha =
+        1e-4f;
 
-    float T_hot = 1.0f;
+    float T_hot =
+        1.0f;
 
-    float T_cold = 0.0f;
-
+    float T_cold =
+        0.0f;
 
     // ================================================================
     // NAVIER-STOKES SETTINGS
     // ================================================================
 
-    float rho = 1.0f;
+    float rho =
+        1.0f;
 
-    float mu = 0.01f;
+    float mu =
+        0.01f;
 
-    float inletU = 1.0f;
+    float inletU =
+        1.0f;
 
-    float inletV = 0.0f;
+    float inletV =
+        0.0f;
 
-    float outletPressure = 0.0f;
-
+    float outletPressure =
+        0.0f;
 
     // ================================================================
     // MESH EDITOR
@@ -864,10 +915,8 @@ int main()
 
     meshEditor.showViewportWindow(true);
 
-
     std::cout
         << "App running!\n";
-
 
     // ================================================================
     // MAIN LOOP
@@ -877,36 +926,50 @@ int main()
     {
         window.beginFrame();
 
-
         // ============================================================
-        // Receive solver results
+        // RECEIVE SOLVER RESULTS
         // ============================================================
 
         {
-            std::lock_guard<std::mutex> lock(
-                g_frameMutex);
-
+            std::lock_guard<std::mutex>
+                lock(g_frameMutex);
 
             while (!g_frameQueue.empty())
             {
-                auto& pf =
+                PendingFrame& pf =
                     g_frameQueue.front();
 
-
-                meshEditor.pushAnimationFrame(
-                    pf.values,
-                    pf.time,
-                    pf.globalMin,
-                    pf.globalMax);
-
+                if (pf.navierStokes)
+                {
+                    meshEditor
+                        .pushNavierStokesAnimationFrame(
+                            pf.pressure,
+                            pf.velocityU,
+                            pf.velocityV,
+                            pf.time,
+                            pf.pressureMin,
+                            pf.pressureMax,
+                            pf.velocityUMin,
+                            pf.velocityUMax,
+                            pf.velocityVMin,
+                            pf.velocityVMax);
+                }
+                else
+                {
+                    meshEditor
+                        .pushAnimationFrame(
+                            pf.values,
+                            pf.time,
+                            pf.globalMin,
+                            pf.globalMax);
+                }
 
                 g_frameQueue.pop_front();
             }
         }
 
-
         // ============================================================
-        // Animation speed
+        // ANIMATION SPEED
         // ============================================================
 
         {
@@ -914,11 +977,9 @@ int main()
                 g_suggestedAnimSpeed.exchange(
                     0.0f);
 
-
             if (spd > 0.0f)
                 meshEditor.setAnimSpeed(spd);
         }
-
 
         // ============================================================
         // MENU BAR
@@ -936,14 +997,11 @@ int main()
 
                 ImGui::Separator();
 
-
                 if (ImGui::MenuItem("Exit"))
                     break;
 
-
                 ImGui::EndMenu();
             }
-
 
             // --------------------------------------------------------
             // View
@@ -952,35 +1010,35 @@ int main()
             if (ImGui::BeginMenu("View"))
             {
                 bool showEditor =
-                    meshEditor.isEditorWindowVisible();
+                    meshEditor
+                    .isEditorWindowVisible();
 
                 bool showViewport =
-                    meshEditor.isViewportWindowVisible();
-
+                    meshEditor
+                    .isViewportWindowVisible();
 
                 if (ImGui::MenuItem(
                     "Mesh Editor",
                     nullptr,
                     showEditor))
                 {
-                    meshEditor.showEditorWindow(
-                        !showEditor);
+                    meshEditor
+                        .showEditorWindow(
+                            !showEditor);
                 }
-
 
                 if (ImGui::MenuItem(
                     "Mesh Viewport",
                     nullptr,
                     showViewport))
                 {
-                    meshEditor.showViewportWindow(
-                        !showViewport);
+                    meshEditor
+                        .showViewportWindow(
+                            !showViewport);
                 }
-
 
                 ImGui::EndMenu();
             }
-
 
             // --------------------------------------------------------
             // Mesh
@@ -991,7 +1049,8 @@ int main()
                 if (ImGui::MenuItem(
                     "Import OBJ..."))
                 {
-                    nfdchar_t* outPath = nullptr;
+                    nfdchar_t* outPath =
+                        nullptr;
 
                     nfdfilteritem_t filter =
                     {
@@ -999,14 +1058,12 @@ int main()
                         "obj"
                     };
 
-
                     nfdresult_t result =
                         NFD_OpenDialog(
                             &outPath,
                             &filter,
                             1,
                             nullptr);
-
 
                     if (result == NFD_OKAY)
                     {
@@ -1016,15 +1073,15 @@ int main()
                                 CFD::loadOBJ(
                                     outPath);
 
-
                             meshEditor.setMesh(
                                 &loadedMesh);
 
-
-                            meshEditor.showViewportWindow(
-                                true);
+                            meshEditor
+                                .showViewportWindow(
+                                    true);
                         }
-                        catch (const std::exception& e)
+                        catch (
+                            const std::exception& e)
                         {
                             std::cerr
                                 << "Failed to load OBJ: "
@@ -1032,12 +1089,10 @@ int main()
                                 << '\n';
                         }
 
-
                         NFD_FreePath(
                             outPath);
                     }
                 }
-
 
                 if (ImGui::MenuItem(
                     "Clear Mesh",
@@ -1045,13 +1100,12 @@ int main()
                     false,
                     meshEditor.hasMesh()))
                 {
-                    meshEditor.setMesh(nullptr);
+                    meshEditor.setMesh(
+                        nullptr);
                 }
-
 
                 ImGui::EndMenu();
             }
-
 
             // --------------------------------------------------------
             // Help
@@ -1062,17 +1116,13 @@ int main()
                 if (ImGui::MenuItem("About"))
                     window.openAbout();
 
-
                 ImGui::EndMenu();
             }
-
 
             ImGui::EndMainMenuBar();
         }
 
-
         window.renderAbout();
-
 
         // ============================================================
         // LAYOUT
@@ -1086,34 +1136,26 @@ int main()
             static_cast<float>(
                 window.height());
 
-
         const float menuBarH =
             ImGui::GetFrameHeight();
-
 
         const float leftToolbarW =
             55.0f;
 
-
         const float rightPanelW =
             270.0f;
-
 
         const float bottomTimelineH =
             60.0f;
 
-
         const float topY =
             menuBarH;
-
 
         const float mainH =
             H - topY;
 
-
         const float centerX =
             leftToolbarW;
-
 
         const float centerW =
             std::max(
@@ -1122,13 +1164,11 @@ int main()
                 leftToolbarW -
                 rightPanelW);
 
-
         const float centerH =
             std::max(
                 200.0f,
                 mainH -
                 bottomTimelineH);
-
 
         // ============================================================
         // MESH EDITOR
@@ -1138,7 +1178,6 @@ int main()
 
         meshEditor.drawViewport();
 
-
         // ============================================================
         // LEFT TOOLBAR
         // ============================================================
@@ -1147,45 +1186,38 @@ int main()
             { 0.0f, topY },
             ImGuiCond_Always);
 
-
         ImGui::SetNextWindowSize(
             { leftToolbarW, mainH },
             ImGuiCond_Always);
 
-
         ImGui::Begin(
             "##toolbar",
             nullptr,
-
             ImGuiWindowFlags_NoTitleBar |
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoCollapse);
 
-
         ImGui::PushStyleColor(
             ImGuiCol_Button,
             { 0.3f, 0.5f, 0.9f, 1.0f });
-
 
         if (ImGui::Button(
             "GEO\n   ",
             { 40, 50 }))
         {
-            meshEditor.showEditorWindow(
-                true);
+            meshEditor
+                .showEditorWindow(true);
 
-            meshEditor.showViewportWindow(
-                true);
+            meshEditor
+                .showViewportWindow(true);
         }
-
 
         ImGui::PopStyleColor();
 
         ImGui::SetItemTooltip(
             "Geometry Mode");
-
 
         ImGui::Button(
             "PHY\n   ",
@@ -1194,7 +1226,6 @@ int main()
         ImGui::SetItemTooltip(
             "Physics Setup");
 
-
         ImGui::Button(
             "MSH\n   ",
             { 40, 50 });
@@ -1202,22 +1233,18 @@ int main()
         ImGui::SetItemTooltip(
             "Mesh");
 
-
         ImGui::PushStyleColor(
             ImGuiCol_Button,
             { 0.2f, 0.7f, 0.2f, 1.0f });
-
 
         ImGui::Button(
             "RUN\n   ",
             { 40, 50 });
 
-
         ImGui::PopStyleColor();
 
         ImGui::SetItemTooltip(
             "Run Solver");
-
 
         ImGui::Button(
             "RES\n   ",
@@ -1226,9 +1253,7 @@ int main()
         ImGui::SetItemTooltip(
             "Results");
 
-
         ImGui::End();
-
 
         // ============================================================
         // RIGHT PROPERTIES PANEL
@@ -1238,29 +1263,24 @@ int main()
             { W - rightPanelW, topY },
             ImGuiCond_Always);
 
-
         ImGui::SetNextWindowSize(
             { rightPanelW, mainH },
             ImGuiCond_Always);
 
-
         ImGui::Begin(
             "Properties",
             nullptr,
-
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoCollapse);
 
-
         // ============================================================
-        // PHYSICS DROPDOWN
+        // PHYSICS
         // ============================================================
 
         ImGui::Text("Physics");
 
         ImGui::Separator();
-
 
         const char* physics[] =
         {
@@ -1268,9 +1288,8 @@ int main()
             "Navier-Stokes 2D"
         };
 
-
         static int physType = 0;
-
+        static int nsOutputIndex = 0;
 
         ImGui::Combo(
             "##phys",
@@ -1278,9 +1297,107 @@ int main()
             physics,
             IM_ARRAYSIZE(physics));
 
-
         ImGui::Spacing();
 
+        // ============================================================
+        // OUTPUT
+        // ============================================================
+
+        ImGui::Text("Output");
+
+        ImGui::Separator();
+
+        if (physType == 0)
+        {
+            const char* heatOutputs[] =
+            {
+                "Temperature (T)"
+            };
+
+            int outputIndex = 0;
+
+            if (ImGui::Combo(
+                "##output_heat",
+                &outputIndex,
+                heatOutputs,
+                IM_ARRAYSIZE(heatOutputs)))
+            {
+                meshEditor.setOutputField(
+                    CFD::UI::OutputField::Temperature);
+            }
+
+            // Always force temperature for heat
+            meshEditor.setOutputField(
+                CFD::UI::OutputField::Temperature);
+        }
+        else
+        {
+            const char* nsOutputs[] =
+            {
+                "Pressure (P)",
+                "Velocity U",
+                "Velocity V"
+            };
+
+            if (ImGui::Combo(
+                "##output_ns",
+                &nsOutputIndex,
+                nsOutputs,
+                IM_ARRAYSIZE(nsOutputs)))
+            {
+                switch (nsOutputIndex)
+                {
+                case 0:
+
+                    meshEditor.setOutputField(
+                        CFD::UI::OutputField::Pressure);
+
+                    break;
+
+                case 1:
+
+                    meshEditor.setOutputField(
+                        CFD::UI::OutputField::VelocityU);
+
+                    break;
+
+                case 2:
+
+                    meshEditor.setOutputField(
+                        CFD::UI::OutputField::VelocityV);
+
+                    break;
+                }
+            }
+
+            // Make sure switching into NS has a valid field
+            // without rerunning the solver.
+            switch (nsOutputIndex)
+            {
+            case 0:
+
+                meshEditor.setOutputField(
+                    CFD::UI::OutputField::Pressure);
+
+                break;
+
+            case 1:
+
+                meshEditor.setOutputField(
+                    CFD::UI::OutputField::VelocityU);
+
+                break;
+
+            case 2:
+
+                meshEditor.setOutputField(
+                    CFD::UI::OutputField::VelocityV);
+
+                break;
+            }
+        }
+
+        ImGui::Spacing();
 
         // ============================================================
         // HEAT SETTINGS
@@ -1292,7 +1409,6 @@ int main()
 
             ImGui::Separator();
 
-
             ImGui::InputFloat(
                 "Alpha [m2/s]",
                 &alpha,
@@ -1300,20 +1416,16 @@ int main()
                 0,
                 "%.2e");
 
-
             ImGui::Spacing();
-
 
             ImGui::Text(
                 "Boundary Conditions");
 
             ImGui::Separator();
 
-
             ImGui::PushStyleColor(
                 ImGuiCol_FrameBg,
                 { 0.4f, 0.1f, 0.1f, 1.0f });
-
 
             ImGui::InputFloat(
                 "T hot [K]",
@@ -1322,14 +1434,11 @@ int main()
                 1.0f,
                 "%.2f");
 
-
             ImGui::PopStyleColor();
-
 
             ImGui::PushStyleColor(
                 ImGuiCol_FrameBg,
                 { 0.1f, 0.2f, 0.4f, 1.0f });
-
 
             ImGui::InputFloat(
                 "T cold [K]",
@@ -1338,10 +1447,8 @@ int main()
                 1.0f,
                 "%.2f");
 
-
             ImGui::PopStyleColor();
         }
-
 
         // ============================================================
         // NAVIER-STOKES SETTINGS
@@ -1353,14 +1460,12 @@ int main()
 
             ImGui::Separator();
 
-
             ImGui::InputFloat(
                 "Density [kg/m3]",
                 &rho,
                 0.1f,
                 1.0f,
                 "%.3f");
-
 
             ImGui::InputFloat(
                 "Viscosity [Pa.s]",
@@ -1369,14 +1474,11 @@ int main()
                 0.01f,
                 "%.4f");
 
-
             ImGui::Spacing();
-
 
             ImGui::Text("Inlet");
 
             ImGui::Separator();
-
 
             ImGui::InputFloat(
                 "U [m/s]",
@@ -1385,7 +1487,6 @@ int main()
                 1.0f,
                 "%.3f");
 
-
             ImGui::InputFloat(
                 "V [m/s]",
                 &inletV,
@@ -1393,14 +1494,11 @@ int main()
                 1.0f,
                 "%.3f");
 
-
             ImGui::Spacing();
-
 
             ImGui::Text("Outlet");
 
             ImGui::Separator();
-
 
             ImGui::InputFloat(
                 "Pressure [Pa]",
@@ -1409,7 +1507,6 @@ int main()
                 1.0f,
                 "%.3f");
         }
-
 
         // ============================================================
         // RUN / STOP
@@ -1421,10 +1518,8 @@ int main()
 
         ImGui::Spacing();
 
-
         const bool solverRunning =
             g_solverRunning.load();
-
 
         if (!solverRunning)
         {
@@ -1432,33 +1527,46 @@ int main()
                 ImGuiCol_Button,
                 { 0.2f, 0.7f, 0.2f, 1.0f });
 
-
             if (ImGui::Button(
                 "▶  RUN SOLVER",
                 { -1, 45 }))
             {
                 if (!g_solverRunning.exchange(true))
                 {
-                    // Clear previous results
+                    // ------------------------------------------------
+                    // Clear old result queue
+                    // ------------------------------------------------
+
+                    {
+                        std::lock_guard<std::mutex>
+                            lock(g_frameMutex);
+
+                        g_frameQueue.clear();
+                    }
+
                     meshEditor.clearAnimation();
 
                     meshEditor.clearScalarField();
 
-                    meshEditor.showViewportWindow(
-                        true);
+                    meshEditor
+                        .showViewportWindow(true);
 
-
+                    // ------------------------------------------------
                     // Get mesh settings
+                    // ------------------------------------------------
+
                     const auto settings =
                         meshEditor.meshSettings();
 
-
                     // ------------------------------------------------
-                    // HEAT
+                    // Heat
                     // ------------------------------------------------
 
                     if (physType == 0)
                     {
+                        meshEditor.setOutputField(
+                            CFD::UI::OutputField::Temperature);
+
                         std::thread(
                             heatSolverThread,
 
@@ -1480,13 +1588,38 @@ int main()
                         ).detach();
                     }
 
-
                     // ------------------------------------------------
-                    // NAVIER-STOKES
+                    // Navier-Stokes
                     // ------------------------------------------------
 
                     else if (physType == 1)
                     {
+                        // Keep the currently selected
+                        // P / U / V output.
+                        switch (nsOutputIndex)
+                        {
+                        case 0:
+
+                            meshEditor.setOutputField(
+                                CFD::UI::OutputField::Pressure);
+
+                            break;
+
+                        case 1:
+
+                            meshEditor.setOutputField(
+                                CFD::UI::OutputField::VelocityU);
+
+                            break;
+
+                        case 2:
+
+                            meshEditor.setOutputField(
+                                CFD::UI::OutputField::VelocityV);
+
+                            break;
+                        }
+
                         std::thread(
                             navierStokesSolverThread,
 
@@ -1516,7 +1649,6 @@ int main()
                 }
             }
 
-
             ImGui::PopStyleColor();
         }
         else
@@ -1525,7 +1657,6 @@ int main()
                 ImGuiCol_Button,
                 { 0.8f, 0.2f, 0.2f, 1.0f });
 
-
             if (ImGui::Button(
                 "■  STOP",
                 { -1, 45 }))
@@ -1533,10 +1664,8 @@ int main()
                 g_solverRunning = false;
             }
 
-
             ImGui::PopStyleColor();
         }
-
 
         // ============================================================
         // ERROR
@@ -1555,22 +1684,20 @@ int main()
                 g_solverErrorMsg.c_str());
         }
 
-
         // ============================================================
         // PROGRESS
         // ============================================================
 
         ImGui::Spacing();
 
-        ImGui::Text("Progress:");
+        ImGui::Text(
+            "Progress:");
 
         ImGui::ProgressBar(
             g_solverProgress.load(),
             { -1, 20 });
 
-
         ImGui::End();
-
 
         // ============================================================
         // VIEWPORT
@@ -1580,25 +1707,20 @@ int main()
             { centerX, topY },
             ImGuiCond_Always);
 
-
         ImGui::SetNextWindowSize(
             { centerW, centerH },
             ImGuiCond_Always);
 
-
         ImGui::Begin(
             "Viewport",
             nullptr,
-
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoScrollbar);
 
-
         const ImVec2 size =
             ImGui::GetContentRegionAvail();
-
 
         const ImVec2 centre =
         {
@@ -1611,18 +1733,14 @@ int main()
                 - 30
         };
 
-
         ImGui::SetCursorPos(
             centre);
-
 
         ImGui::TextDisabled(
             "OpenGL viewport renders here");
 
-
         ImGui::SetCursorPosX(
             centre.x + 20);
-
 
         if (physType == 0)
         {
@@ -1630,22 +1748,49 @@ int main()
                 meshEditor.hasMesh()
                 ? "OBJ mesh loaded — see Mesh Viewport"
                 : meshEditor.hasScalarField()
-                ? "Heat map active — see Mesh Viewport"
-                : "Heat map");
+                ? "Temperature field active — see Mesh Viewport"
+                : "Temperature field");
         }
         else
         {
-            ImGui::TextDisabled(
-                meshEditor.hasMesh()
-                ? "OBJ mesh loaded — see Mesh Viewport"
-                : meshEditor.hasScalarField()
-                ? "Velocity field active — see Mesh Viewport"
-                : "Velocity field");
+            const char* resultName =
+                "Pressure";
+
+            switch (nsOutputIndex)
+            {
+            case 0:
+                resultName = "Pressure";
+                break;
+
+            case 1:
+                resultName = "Velocity U";
+                break;
+
+            case 2:
+                resultName = "Velocity V";
+                break;
+            }
+
+            if (meshEditor.hasMesh())
+            {
+                ImGui::TextDisabled(
+                    "OBJ mesh loaded — see Mesh Viewport");
+            }
+            else if (meshEditor.hasScalarField())
+            {
+                ImGui::TextDisabled(
+                    "%s field active — see Mesh Viewport",
+                    resultName);
+            }
+            else
+            {
+                ImGui::TextDisabled(
+                    "%s field",
+                    resultName);
+            }
         }
 
-
         ImGui::End();
-
 
         // ============================================================
         // TIMELINE
@@ -1658,7 +1803,6 @@ int main()
             },
             ImGuiCond_Always);
 
-
         ImGui::SetNextWindowSize(
             {
                 centerW,
@@ -1666,40 +1810,46 @@ int main()
             },
             ImGuiCond_Always);
 
-
         ImGui::Begin(
             "##timeline",
             nullptr,
-
             ImGuiWindowFlags_NoTitleBar |
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoCollapse);
 
-
         const int totalFrames =
             meshEditor.animFrameCount();
 
-
         if (totalFrames > 0)
         {
-            ImGui::Text(
-                "t=%.2fs",
-                meshEditor.animTime(0));
+            // --------------------------------------------------------
+            // For heat this is physical time.
+            // For NS this is SIMPLE iteration number.
+            // --------------------------------------------------------
 
+            if (physType == 0)
+            {
+                ImGui::Text(
+                    "t=%.2fs",
+                    meshEditor.animTime(0));
+            }
+            else
+            {
+                ImGui::Text(
+                    "Iter %.0f",
+                    meshEditor.animTime(0));
+            }
 
             ImGui::SameLine();
 
-
             int frameIdx =
                 meshEditor.currentAnimFrame();
-
 
             ImGui::SetNextItemWidth(
                 std::max(
                     120.0f,
                     centerW - 280.0f));
-
 
             if (ImGui::SliderInt(
                 "##tslider",
@@ -1712,43 +1862,61 @@ int main()
                     frameIdx);
             }
 
+            ImGui::SameLine();
+
+            if (physType == 0)
+            {
+                ImGui::Text(
+                    "t=%.2fs",
+                    meshEditor.animEndTime());
+            }
+            else
+            {
+                ImGui::Text(
+                    "Iter %.0f",
+                    meshEditor.animEndTime());
+            }
 
             ImGui::SameLine();
 
-
-            ImGui::Text(
-                "t=%.2fs",
-                meshEditor.animEndTime());
-
-
-            ImGui::SameLine();
-
-
-            ImGui::TextDisabled(
-                "[t=%.3fs]",
-                meshEditor.animTime(
-                    meshEditor.currentAnimFrame()));
+            if (physType == 0)
+            {
+                ImGui::TextDisabled(
+                    "[t=%.3fs]",
+                    meshEditor.animTime(
+                        meshEditor.currentAnimFrame()));
+            }
+            else
+            {
+                ImGui::TextDisabled(
+                    "[Iter %.0f]",
+                    meshEditor.animTime(
+                        meshEditor.currentAnimFrame()));
+            }
         }
         else
         {
-            ImGui::TextDisabled(
-                "t = 0.0s");
-
+            if (physType == 0)
+            {
+                ImGui::TextDisabled(
+                    "t = 0.0s");
+            }
+            else
+            {
+                ImGui::TextDisabled(
+                    "Iter = 0");
+            }
 
             ImGui::SameLine();
 
-
             ImGui::BeginDisabled();
 
-
             float dummy = 0.0f;
-
 
             ImGui::SetNextItemWidth(
                 std::max(
                     120.0f,
                     centerW - 280.0f));
-
 
             ImGui::SliderFloat(
                 "##tslider_empty",
@@ -1757,20 +1925,15 @@ int main()
                 1.0f,
                 "");
 
-
             ImGui::EndDisabled();
-
 
             ImGui::SameLine();
 
-
             ImGui::TextDisabled(
-                "t = --");
+                "No results");
         }
 
-
         ImGui::End();
-
 
         // ============================================================
         // FRAME END
@@ -1778,7 +1941,6 @@ int main()
 
         window.endFrame();
     }
-
 
     // ================================================================
     // CLEANUP
