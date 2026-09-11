@@ -15,7 +15,7 @@ namespace {
 }
 
 namespace CFD::UI {
-
+    
     namespace {
         void normalizeRect(RectDomain& rect)
         {

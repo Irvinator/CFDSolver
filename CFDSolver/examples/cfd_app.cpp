@@ -1,6 +1,7 @@
 /**
  * CFD Solver Application
  * ImGui + OpenGL UI – responsive fullscreen-friendly layout
+ * Adds per-side thermal BC controls + material presets for alpha
  */
 #include "renderer/Window.hpp"
 #include "renderer/MeshEditor2D.hpp"
@@ -37,11 +38,19 @@ static std::atomic<bool>        g_solverError{ false };
 static std::string              g_solverErrorMsg;
 static std::atomic<float>       g_suggestedAnimSpeed{ 0.0f };
 
+struct MaterialPreset {
+    const char* name;
+    float alpha;
+};
+
 static void solverThread(
     int    meshNx, int meshNy,
     double width, double height,
     double alpha,
-    double T_hot, double T_cold)
+    double T_west,
+    double T_east,
+    double T_south,
+    double T_north)
 {
     g_solverError = false;
     g_solverProgress = 0.0f;
@@ -61,13 +70,13 @@ static void solverThread(
         CFD::HeatSolver2D solver(mesh, alpha, dt, tEnd);
 
         CFD::HeatSolver2D::BoundaryConditions bcs;
-        bcs.T_west = T_hot;
-        bcs.T_east = T_cold;
-        bcs.T_south = T_cold;
-        bcs.T_north = T_cold;
+        bcs.T_west = T_west;
+        bcs.T_east = T_east;
+        bcs.T_south = T_south;
+        bcs.T_north = T_north;
 
         solver.setBCs(bcs);
-        solver.setIC(T_cold);
+        solver.setIC(0.0);
         solver.setOutputFreq(50);
         solver.enableSteadyStop(true);
         solver.setSteadyTolerance(1.0e-6);
@@ -149,14 +158,27 @@ int main()
         return -1;
     }
 
-    float alpha = 1e-4f;
-    float T_hot = 1.0f;
-    float T_cold = 0.0f;
+    static const MaterialPreset materials[] = {
+        { "Custom",      1.0e-4f },
+        { "Air",         2.1e-5f },
+        { "Water",       1.4e-7f },
+        { "Steel",       1.2e-5f },
+        { "Aluminium",   8.4e-5f },
+        { "Copper",      1.11e-4f }
+    };
+
+    int materialIndex = 0;
+    float alpha = materials[materialIndex].alpha;
+
+    float T_west = 1.0f;
+    float T_east = 0.0f;
+    float T_south = 0.0f;
+    float T_north = 0.0f;
 
     CFD::OBJMesh loadedMesh;
     CFD::UI::MeshEditor2D meshEditor;
     meshEditor.showEditorWindow(false);
-    meshEditor.showViewportWindow(true);
+    meshEditor.showViewportWindow(false);
 
     std::cout << "App running!\n";
 
@@ -237,7 +259,7 @@ int main()
         const float H = static_cast<float>(window.height());
         const float menuBarH = ImGui::GetFrameHeight();
         const float leftToolbarW = 55.0f;
-        const float rightPanelW = 270.0f;
+        const float rightPanelW = 345.0f;
         const float bottomTimelineH = 60.0f;
         const float topY = menuBarH;
         const float mainH = H - topY;
@@ -287,22 +309,40 @@ int main()
         ImGui::Separator();
         const char* physics[] = { "Heat Diffusion 2D", "Navier-Stokes 2D", "Navier-Stokes 3D" };
         static int physType = 0;
-        ImGui::Combo("##phys", &physType, physics, 3);
+        ImGui::Combo("##phys", &physType, physics, IM_ARRAYSIZE(physics));
 
         ImGui::Spacing();
+        static const char* materialNames[] = {
+            "Custom", "Air", "Water", "Steel", "Aluminium", "Copper"
+        };
+
+        static const float materialAlpha[] = {
+            1.0e-4f, 2.1e-5f, 1.4e-7f, 1.2e-5f, 8.4e-5f, 1.11e-4f
+        };
+
+        static int materialIndex = 0;
+
         ImGui::Text("Material");
         ImGui::Separator();
+
+        if (ImGui::Combo("Material", &materialIndex, materialNames, IM_ARRAYSIZE(materialNames)))
+        {
+            if (materialIndex != 0) {
+                alpha = materialAlpha[materialIndex];
+            }
+        }
+
+        ImGui::BeginDisabled(materialIndex != 0);
         ImGui::InputFloat("Alpha [m2/s]", &alpha, 0, 0, "%.2e");
+        ImGui::EndDisabled();
 
         ImGui::Spacing();
         ImGui::Text("Boundary Conditions");
         ImGui::Separator();
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.4f, 0.1f, 0.1f, 1.0f });
-        ImGui::InputFloat("T hot [K]", &T_hot, 0.1f, 1.0f, "%.2f");
-        ImGui::PopStyleColor();
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.1f, 0.2f, 0.4f, 1.0f });
-        ImGui::InputFloat("T cold [K]", &T_cold, 0.1f, 1.0f, "%.2f");
-        ImGui::PopStyleColor();
+        ImGui::InputFloat("T west [K]", &T_west, 0.1f, 1.0f, "%.2f");
+        ImGui::InputFloat("T east [K]", &T_east, 0.1f, 1.0f, "%.2f");
+        ImGui::InputFloat("T south [K]", &T_south, 0.1f, 1.0f, "%.2f");
+        ImGui::InputFloat("T north [K]", &T_north, 0.1f, 1.0f, "%.2f");
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -321,8 +361,10 @@ int main()
                         settings.nx, settings.ny,
                         settings.width, settings.height,
                         static_cast<double>(alpha),
-                        static_cast<double>(T_hot),
-                        static_cast<double>(T_cold)).detach();
+                        static_cast<double>(T_west),
+                        static_cast<double>(T_east),
+                        static_cast<double>(T_south),
+                        static_cast<double>(T_north)).detach();
                 }
             }
             ImGui::PopStyleColor();
