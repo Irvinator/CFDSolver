@@ -88,16 +88,11 @@ static void heatSolverThread(
 
     try
     {
-        // ------------------------------------------------------------
-        // Create mesh
-        // ------------------------------------------------------------
-
         Mesh mesh(
             meshNx,
             meshNy,
             width,
             height);
-
 
         const double dx =
             width /
@@ -221,7 +216,6 @@ static void heatSolverThread(
             {
                 const CFD::ScalarField& T =
                     solver.T();
-
 
                 RawFrame rf;
 
@@ -361,12 +355,11 @@ static void navierStokesSolverThread(
     g_solverProgress = 0.0f;
     g_suggestedAnimSpeed = 0.0f;
 
-
     try
     {
-        // ------------------------------------------------------------
-        // Create mesh
-        // ------------------------------------------------------------
+        // ============================================================
+        // CREATE MESH
+        // ============================================================
 
         Mesh mesh(
             meshNx,
@@ -375,18 +368,13 @@ static void navierStokesSolverThread(
             height);
 
 
-        // ------------------------------------------------------------
-        // Create staggered fields
-        //
-        // p = nx     x ny
-        // u = (nx+1) x ny
-        // v = nx     x (ny+1)
-        // ------------------------------------------------------------
+        // ============================================================
+        // CREATE STAGGERED FIELDS
+        // ============================================================
 
         CFD::StaggeredFields fields(
             meshNx,
             meshNy);
-
 
         fields.initialise(
             0.0,
@@ -394,24 +382,21 @@ static void navierStokesSolverThread(
             0.0);
 
 
-        // ------------------------------------------------------------
-        // Boundary conditions
-        // ------------------------------------------------------------
+        // ============================================================
+        // BOUNDARY CONDITIONS
+        // ============================================================
 
         CFD::BoundaryCondition northBC(
             CFD::BoundarySide::north,
             CFD::BoundaryType::Wall);
 
-
         CFD::BoundaryCondition southBC(
             CFD::BoundarySide::south,
             CFD::BoundaryType::Wall);
 
-
         CFD::BoundaryCondition eastBC(
             CFD::BoundarySide::east,
             CFD::BoundaryType::Outlet);
-
 
         CFD::BoundaryCondition westBC(
             CFD::BoundarySide::west,
@@ -419,20 +404,17 @@ static void navierStokesSolverThread(
 
 
         // Inlet velocity
-
         westBC.setVelocity(
             inletU,
             inletV);
 
 
         // Outlet pressure
-
         eastBC.setPressure(
             outletPressure);
 
 
         // No-slip walls
-
         northBC.setVelocity(
             0.0,
             0.0);
@@ -442,9 +424,9 @@ static void navierStokesSolverThread(
             0.0);
 
 
-        // ------------------------------------------------------------
-        // Create Staggered SIMPLE solver
-        // ------------------------------------------------------------
+        // ============================================================
+        // CREATE SIMPLE SOLVER
+        // ============================================================
 
         CFD::StaggeredSIMPLE solver(
             mesh,
@@ -455,32 +437,26 @@ static void navierStokesSolverThread(
             westBC);
 
 
-        // ------------------------------------------------------------
-        // Solver settings
-        // ------------------------------------------------------------
+        // ============================================================
+        // SOLVER SETTINGS
+        // ============================================================
 
-        solver.setDensity(
-            rho);
+        solver.setDensity(rho);
 
-        solver.setViscosity(
-            mu);
+        solver.setViscosity(mu);
 
-        solver.setPressureRelaxation(
-            0.3);
+        solver.setPressureRelaxation(0.3);
 
-        solver.setVelocityRelaxation(
-            0.7);
+        solver.setVelocityRelaxation(0.7);
 
-        solver.setConvergenceTolerance(
-            0.2);
+        solver.setConvergenceTolerance(0.16);
 
-        solver.setMaxIterations(
-            1000);
+        solver.setMaxIterations(200);
 
 
         std::cout
             << "\n========================================\n"
-            << "     NAVIER-STOKES 2D SOLVER\n"
+            << "       NAVIER-STOKES 2D SOLVER\n"
             << "========================================\n";
 
         std::cout
@@ -523,19 +499,268 @@ static void navierStokesSolverThread(
             << '\n';
 
 
-        // ------------------------------------------------------------
-        // Solve
-        // ------------------------------------------------------------
+        // ============================================================
+        // ANIMATION STORAGE
+        //
+        // IMPORTANT:
+        //
+        // EVERY SIMPLE ITERATION IS NOW RECORDED.
+        //
+        // Iteration 1  -> frame 1
+        // Iteration 2  -> frame 2
+        // Iteration 3  -> frame 3
+        // ...
+        // ============================================================
 
-        solver.solve();
+        struct RawFrame
+        {
+            std::vector<double> values;
+            double time = 0.0;
+        };
 
 
-        // ------------------------------------------------------------
-        // Solver results
-        // ------------------------------------------------------------
+        std::vector<RawFrame> rawFrames;
+
+        rawFrames.reserve(
+            solver.getMaxIterations());
+
+
+        double globalMin = 1.0e30;
+
+        double globalMax = -1.0e30;
+
+
+        // ============================================================
+        // SIMPLE ITERATIONS
+        // ============================================================
+
+        while (
+            !solver.finished() &&
+            g_solverRunning)
+        {
+            // --------------------------------------------------------
+            // Perform EXACTLY ONE SIMPLE iteration
+            // --------------------------------------------------------
+
+            solver.step();
+
+
+            // --------------------------------------------------------
+            // RECORD THIS ITERATION
+            //
+            // There is deliberately NO recordEvery condition here.
+            // Every iteration becomes an animation frame.
+            // --------------------------------------------------------
+
+            RawFrame rf;
+
+            rf.values.resize(
+                static_cast<std::size_t>(
+                    meshNx * meshNy));
+
+
+            // --------------------------------------------------------
+            // Convert staggered U/V to cell-centred velocity magnitude
+            // --------------------------------------------------------
+
+            for (int j = 0;
+                j < meshNy;
+                ++j)
+            {
+                for (int i = 0;
+                    i < meshNx;
+                    ++i)
+                {
+                    const double uWest =
+                        fields.u(i, j);
+
+                    const double uEast =
+                        fields.u(i + 1, j);
+
+                    const double vSouth =
+                        fields.v(i, j);
+
+                    const double vNorth =
+                        fields.v(i, j + 1);
+
+
+                    const double uCell =
+                        0.5 *
+                        (uWest + uEast);
+
+                    const double vCell =
+                        0.5 *
+                        (vSouth + vNorth);
+
+
+                    const double velocityMagnitude =
+                        std::sqrt(
+                            uCell * uCell +
+                            vCell * vCell);
+
+
+                    const std::size_t index =
+                        static_cast<std::size_t>(
+                            j * meshNx + i);
+
+
+                    rf.values[index] =
+                        velocityMagnitude;
+
+
+                    globalMin =
+                        std::min(
+                            globalMin,
+                            velocityMagnitude);
+
+                    globalMax =
+                        std::max(
+                            globalMax,
+                            velocityMagnitude);
+                }
+            }
+
+
+            // --------------------------------------------------------
+            // Animation time = SIMPLE iteration
+            //
+            // This is deliberately NOT physical time.
+            //
+            // t = 1 -> iteration 1
+            // t = 2 -> iteration 2
+            // ...
+            // --------------------------------------------------------
+
+            rf.time =
+                static_cast<double>(
+                    solver.getIteration());
+
+
+            rawFrames.push_back(
+                std::move(rf));
+
+
+            // --------------------------------------------------------
+            // Progress
+            // --------------------------------------------------------
+
+            const float progress =
+                static_cast<float>(
+                    solver.getIteration())
+                /
+                static_cast<float>(
+                    solver.getMaxIterations());
+
+            g_solverProgress =
+                std::clamp(
+                    progress,
+                    0.0f,
+                    1.0f);
+        }
+
+
+        // ============================================================
+        // STOPPED BEFORE ANY ITERATION
+        // ============================================================
+
+        if (rawFrames.empty())
+        {
+            g_solverProgress = 1.0f;
+
+            g_solverRunning = false;
+
+            return;
+        }
+
+
+        // ============================================================
+        // VALIDATE GLOBAL COLOUR SCALE
+        // ============================================================
+
+        if (globalMax <= globalMin)
+        {
+            globalMax =
+                globalMin + 1.0;
+        }
+
+
+        // ============================================================
+        // ANIMATION SPEED
+        //
+        // Show the complete iteration history over approximately
+        // 8 seconds.
+        //
+        // Example:
+        //
+        // 40 iterations -> 5 frames/sec
+        // 100 iterations -> 12.5 frames/sec
+        // 1000 iterations -> 125 frames/sec, clamped to 60
+        // ============================================================
+
+        const int nFrames =
+            static_cast<int>(
+                rawFrames.size());
+
+
+        const float desiredPlaySecs =
+            8.0f;
+
+
+        const float autoSpeed =
+            static_cast<float>(
+                nFrames)
+            /
+            desiredPlaySecs;
+
+
+        g_suggestedAnimSpeed =
+            std::clamp(
+                autoSpeed,
+                1.0f,
+                60.0f);
+
+
+        // ============================================================
+        // SEND ALL FRAMES TO GUI
+        // ============================================================
+
+        {
+            std::lock_guard<std::mutex> lock(
+                g_frameMutex);
+
+
+            for (auto& rf : rawFrames)
+            {
+                PendingFrame pf;
+
+                pf.values =
+                    std::move(
+                        rf.values);
+
+                pf.time =
+                    rf.time;
+
+                pf.globalMin =
+                    globalMin;
+
+                pf.globalMax =
+                    globalMax;
+
+
+                g_frameQueue.push_back(
+                    std::move(pf));
+            }
+        }
+
+
+        // ============================================================
+        // RESULTS
+        // ============================================================
 
         std::cout
-            << "\nNavier-Stokes solver complete.\n";
+            << "\n========================================\n"
+            << "     NAVIER-STOKES SOLVER COMPLETE\n"
+            << "========================================\n";
 
         std::cout
             << "Iterations: "
@@ -543,118 +768,22 @@ static void navierStokesSolverThread(
             << '\n';
 
         std::cout
-            << "Residual: "
+            << "Final residual: "
             << solver.getResidual()
             << '\n';
 
-
-        // ------------------------------------------------------------
-        // Convert staggered U velocity to cell-centred U velocity
-        //
-        // u is stored on vertical faces:
-        //
-        // (nx + 1) x ny
-        //
-        // The GUI requires:
-        //
-        // nx x ny
-        //
-        // Therefore average the west and east face values.
-        // ------------------------------------------------------------
-
-        std::vector<double> velocityField;
-
-        velocityField.resize(
-            static_cast<std::size_t>(
-                meshNx * meshNy));
-
-
-        double globalMin = 1e30;
-
-        double globalMax = -1e30;
-
-
-        for (int j = 0;
-            j < meshNy;
-            ++j)
-        {
-            for (int i = 0;
-                i < meshNx;
-                ++i)
-            {
-                const double uWest =
-                    fields.u(i, j);
-
-                const double uEast =
-                    fields.u(i + 1, j);
-
-
-                const double uCell =
-                    0.5 *
-                    (uWest + uEast);
-
-
-                const int index =
-                    j * meshNx + i;
-
-
-                velocityField[
-                    static_cast<std::size_t>(
-                        index)] =
-                    uCell;
-
-
-                    globalMin =
-                        std::min(
-                            globalMin,
-                            uCell);
-
-                    globalMax =
-                        std::max(
-                            globalMax,
-                            uCell);
-            }
-        }
-
-
-        if (globalMax <= globalMin)
-            globalMax = globalMin + 1.0;
-
-
-        // ------------------------------------------------------------
-        // Send result to GUI
-        // ------------------------------------------------------------
-
-        PendingFrame frame;
-
-        frame.values =
-            std::move(velocityField);
-
-        frame.time = 0.0;
-
-        frame.globalMin =
-            globalMin;
-
-        frame.globalMax =
-            globalMax;
-
-
-        {
-            std::lock_guard<std::mutex> lock(
-                g_frameMutex);
-
-            g_frameQueue.push_back(
-                std::move(frame));
-        }
+        std::cout
+            << "Animation frames: "
+            << rawFrames.size()
+            << '\n';
 
 
         g_solverProgress = 1.0f;
-
-        g_suggestedAnimSpeed = 1.0f;
     }
     catch (const std::exception& e)
     {
-        g_solverErrorMsg = e.what();
+        g_solverErrorMsg =
+            e.what();
 
         g_solverError = true;
     }
@@ -662,7 +791,6 @@ static void navierStokesSolverThread(
 
     g_solverRunning = false;
 }
-
 
 // ================================================================
 // MAIN
@@ -1524,14 +1652,18 @@ int main()
         // ============================================================
 
         ImGui::SetNextWindowPos(
-            { centerX,
-              topY + centerH },
+            {
+                centerX,
+                topY + centerH
+            },
             ImGuiCond_Always);
 
 
         ImGui::SetNextWindowSize(
-            { centerW,
-              bottomTimelineH },
+            {
+                centerW,
+                bottomTimelineH
+            },
             ImGuiCond_Always);
 
 
@@ -1660,4 +1792,3 @@ int main()
 
     return 0;
 }
-

@@ -36,6 +36,7 @@ namespace CFD
         double relaxationVelocity{ 0.7 };
         double rho{ 1.0 };
         double mu{ 0.01 };
+
         double convergenceTolerance{ 1.0e-6 };
         std::size_t maxIterations{ 1000 };
 
@@ -87,6 +88,14 @@ namespace CFD
         std::size_t getIteration() const;
         double getResidual() const;
 
+        // One SIMPLE iteration.
+        // This allows cfd_app to animate the solution.
+        void step();
+
+        // True when converged or maximum iterations reached.
+        bool finished() const;
+
+        // Runs the solver to completion without requiring the GUI.
         void solve();
     };
 }
