@@ -177,8 +177,10 @@ namespace CFD::UI {
             canvasSize.x * 0.5f -
             domCx * zoom_;
 
+        // Structured mesh uses mathematical Y:
+        // positive Y is UP on screen.
         panY_ =
-            canvasSize.y * 0.5f -
+            canvasSize.y * 0.5f +
             domCy * zoom_;
     }
 
@@ -235,6 +237,70 @@ namespace CFD::UI {
         f.pressure = pressure;
         f.velocityU = velocityU;
         f.velocityV = velocityV;
+
+        // ------------------------------------------------------------
+        // Calculate cell-centred velocity magnitude
+        //
+        // |V| = sqrt(U^2 + V^2)
+        // ------------------------------------------------------------
+
+        f.velocityMagnitude.resize(
+            velocityU.size());
+
+        double velocityMagnitudeMin =
+            1.0e30;
+
+        double velocityMagnitudeMax =
+            -1.0e30;
+
+        for (std::size_t i = 0;
+            i < velocityU.size();
+            ++i)
+        {
+            const double u =
+                velocityU[i];
+
+            const double v =
+                (i < velocityV.size())
+                ? velocityV[i]
+                : 0.0;
+
+            const double magnitude =
+                std::sqrt(
+                    u * u +
+                    v * v);
+
+            f.velocityMagnitude[i] =
+                magnitude;
+
+            velocityMagnitudeMin =
+                std::min(
+                    velocityMagnitudeMin,
+                    magnitude);
+
+            velocityMagnitudeMax =
+                std::max(
+                    velocityMagnitudeMax,
+                    magnitude);
+        }
+
+        if (f.velocityMagnitude.empty())
+        {
+            velocityMagnitudeMin = 0.0;
+            velocityMagnitudeMax = 1.0;
+        }
+        else if (velocityMagnitudeMax <=
+            velocityMagnitudeMin)
+        {
+            velocityMagnitudeMax =
+                velocityMagnitudeMin + 1.0;
+        }
+
+        f.velocityMagnitudeMin =
+            velocityMagnitudeMin;
+
+        f.velocityMagnitudeMax =
+            velocityMagnitudeMax;
 
         f.time = time;
 
@@ -360,13 +426,25 @@ namespace CFD::UI {
 
             break;
 
+        case OutputField::VelocityMagnitude:
+
+            selectedValues =
+                &f.velocityMagnitude;
+
+            scalar_.minValue =
+                f.velocityMagnitudeMin;
+
+            scalar_.maxValue =
+                f.velocityMagnitudeMax;
+
+            break;
+
         case OutputField::Temperature:
 
         default:
 
-            // This case should only occur if a heat field
-            // is selected while displaying an NS frame.
-            selectedValues = &f.pressure;
+            selectedValues =
+                &f.pressure;
 
             scalar_.minValue =
                 f.pressureMin;
@@ -1047,6 +1125,17 @@ namespace CFD::UI {
                 }
             }
 
+            // --------------------------------------------------------
+            // IMPORTANT:
+            // Structured domain uses mathematical coordinates:
+            //
+            // +X -> right
+            // +Y -> up
+            //
+            // ImGui screen coordinates have +Y downward, so Y
+            // must be inverted here.
+            // --------------------------------------------------------
+
             auto toScreen =
                 [&](double x, double y) -> ImVec2
                 {
@@ -1056,10 +1145,11 @@ namespace CFD::UI {
                         static_cast<float>(x) * zoom_,
 
                         canvasPos.y +
-                        panY_ +
+                        panY_ -
                         static_cast<float>(y) * zoom_);
                 };
 
+            // Inverse transform for mouse -> world coordinates.
             auto toWorld =
                 [&](float sx, float sy) -> ImVec2
                 {
@@ -1068,9 +1158,9 @@ namespace CFD::UI {
                             canvasPos.x -
                             panX_) / zoom_,
 
-                        (sy -
-                            canvasPos.y -
-                            panY_) / zoom_);
+                        (canvasPos.y +
+                            panY_ -
+                            sy) / zoom_);
                 };
 
             // --------------------------------------------------------
@@ -1401,6 +1491,16 @@ namespace CFD::UI {
 
                             ImGui::SetTooltip(
                                 "Cell (%d, %d)\nV = %.6f m/s",
+                                ci,
+                                cj,
+                                value);
+
+                            break;
+
+                        case OutputField::VelocityMagnitude:
+
+                            ImGui::SetTooltip(
+                                "Cell (%d, %d)\n|V| = %.6f m/s",
                                 ci,
                                 cj,
                                 value);

@@ -30,7 +30,8 @@ namespace CFD::UI {
         Temperature,
         Pressure,
         VelocityU,
-        VelocityV
+        VelocityV,
+        VelocityMagnitude
     };
 
     class MeshEditor2D {
@@ -199,6 +200,7 @@ namespace CFD::UI {
             std::vector<double> pressure;
             std::vector<double> velocityU;
             std::vector<double> velocityV;
+            std::vector<double> velocityMagnitude;
 
             double time = 0.0;
 
@@ -215,6 +217,9 @@ namespace CFD::UI {
 
             double velocityVMin = 0.0;
             double velocityVMax = 1.0;
+
+            double velocityMagnitudeMin = 0.0;
+            double velocityMagnitudeMax = 1.0;
 
             bool navierStokes = false;
         };

@@ -1656,7 +1656,9 @@ int main()
 
           
 
-           
+            ImGui::TextDisabled(
+                "Wall velocity defines the moving lid.");
+        }
 
 
         // ============================================================
