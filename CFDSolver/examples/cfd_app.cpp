@@ -1,7 +1,7 @@
 /**
  * CFD Solver Application
  * ImGui + OpenGL UI – responsive fullscreen-friendly layout
- * Adds per-side thermal BC controls + material presets for alpha
+ * Adds material presets, per-side thermal BCs, and auto simulation modes.
  */
 #include "renderer/Window.hpp"
 #include "renderer/MeshEditor2D.hpp"
@@ -38,6 +38,13 @@ static std::atomic<bool>        g_solverError{ false };
 static std::string              g_solverErrorMsg;
 static std::atomic<float>       g_suggestedAnimSpeed{ 0.0f };
 
+enum class SimMode {
+    MaterialComparison = 0,
+    Transient = 1,
+    NearSteady = 2,
+    Manual = 3
+};
+
 struct MaterialPreset {
     const char* name;
     float alpha;
@@ -50,7 +57,9 @@ static void solverThread(
     double T_west,
     double T_east,
     double T_south,
-    double T_north)
+    double T_north,
+    double tEnd,
+    int    targetFrames)
 {
     g_solverError = false;
     g_solverProgress = 0.0f;
@@ -64,8 +73,6 @@ static void solverThread(
         const double dMin = std::min(dx, dy);
         const double Fo_target = 5.0;
         const double dt = Fo_target * dMin * dMin / alpha;
-        const double L = std::max(width, height);
-        const double tEnd = 2.0 * L * L / alpha;
 
         CFD::HeatSolver2D solver(mesh, alpha, dt, tEnd);
 
@@ -75,44 +82,60 @@ static void solverThread(
         bcs.T_south = T_south;
         bcs.T_north = T_north;
 
+        const double icMean = 0.25 * (T_west + T_east + T_south + T_north);
+
         solver.setBCs(bcs);
-        solver.setIC(0.0);
-        solver.setOutputFreq(50);
+        solver.setIC(icMean);
+        solver.setOutputFreq(1);
         solver.enableSteadyStop(true);
         solver.setSteadyTolerance(1.0e-6);
 
-        const int targetFrames = 50;
-        const int estimatedSteps = static_cast<int>(std::ceil(tEnd / dt));
-        const int recordEvery = std::max(1, estimatedSteps / targetFrames);
+        const int safeFrameCount = std::max(2, targetFrames);
+        const double frameDt = tEnd / static_cast<double>(safeFrameCount - 1);
+        double nextFrameTime = 0.0;
 
         CFD::ConjugateGradient cg(1e-8, 5000);
         std::vector<int> cgIters;
 
         struct RawFrame { std::vector<double> values; double time = 0.0; };
         std::vector<RawFrame> rawFrames;
-        rawFrames.reserve(targetFrames + 4);
+        rawFrames.reserve(static_cast<std::size_t>(safeFrameCount + 4));
 
         double globalMin = 1e30;
         double globalMax = -1e30;
 
+        auto recordFrame = [&](double timeValue) {
+            const CFD::ScalarField& T = solver.T();
+            RawFrame rf;
+            rf.values.resize(T.size());
+            for (std::size_t k = 0; k < T.size(); ++k) {
+                rf.values[k] = T[k];
+                globalMin = std::min(globalMin, T[k]);
+                globalMax = std::max(globalMax, T[k]);
+            }
+            rf.time = timeValue;
+            rawFrames.push_back(std::move(rf));
+            };
+
+        recordFrame(0.0);
+        nextFrameTime += frameDt;
+
         while (!solver.finished() && g_solverRunning) {
             solver.step(cg, cgIters);
 
-            if (solver.steps() % recordEvery == 0 || solver.steps() == 1) {
-                const CFD::ScalarField& T = solver.T();
-                RawFrame rf;
-                rf.values.resize(T.size());
-                for (std::size_t k = 0; k < T.size(); ++k) {
-                    rf.values[k] = T[k];
-                    globalMin = std::min(globalMin, T[k]);
-                    globalMax = std::max(globalMax, T[k]);
-                }
-                rf.time = solver.time();
-                rawFrames.push_back(std::move(rf));
+            while (solver.time() + 1.0e-12 >= nextFrameTime &&
+                static_cast<int>(rawFrames.size()) < safeFrameCount)
+            {
+                recordFrame(solver.time());
+                nextFrameTime += frameDt;
             }
 
             g_solverProgress = static_cast<float>(
-                std::min(solver.time() / tEnd, 1.0));
+                std::min(solver.time() / std::max(tEnd, 1.0e-12), 1.0));
+        }
+
+        if (rawFrames.empty() || rawFrames.back().time < solver.time()) {
+            recordFrame(solver.time());
         }
 
         if (globalMax <= globalMin) globalMax = globalMin + 1.0;
@@ -159,12 +182,12 @@ int main()
     }
 
     static const MaterialPreset materials[] = {
-        { "Custom",      1.0e-4f },
-        { "Air",         2.1e-5f },
-        { "Water",       1.4e-7f },
-        { "Steel",       1.2e-5f },
-        { "Aluminium",   8.4e-5f },
-        { "Copper",      1.11e-4f }
+        { "Custom",     1.0e-4f },
+        { "Air",        2.1e-5f },
+        { "Water",      1.4e-7f },
+        { "Steel",      1.2e-5f },
+        { "Aluminium",  8.4e-5f },
+        { "Copper",     1.11e-4f }
     };
 
     int materialIndex = 0;
@@ -175,10 +198,15 @@ int main()
     float T_south = 0.0f;
     float T_north = 0.0f;
 
+    int simModeIndex = 0; // Material Comparison
+    float manualEndTime = 10.0f;
+    int manualFrames = 50;
+    bool loopAnimation = false;
+
     CFD::OBJMesh loadedMesh;
     CFD::UI::MeshEditor2D meshEditor;
     meshEditor.showEditorWindow(false);
-    meshEditor.showViewportWindow(false);
+    meshEditor.showViewportWindow(true);
 
     std::cout << "App running!\n";
 
@@ -259,7 +287,7 @@ int main()
         const float H = static_cast<float>(window.height());
         const float menuBarH = ImGui::GetFrameHeight();
         const float leftToolbarW = 55.0f;
-        const float rightPanelW = 345.0f;
+        const float rightPanelW = 330.0f;
         const float bottomTimelineH = 60.0f;
         const float topY = menuBarH;
         const float mainH = H - topY;
@@ -309,28 +337,21 @@ int main()
         ImGui::Separator();
         const char* physics[] = { "Heat Diffusion 2D", "Navier-Stokes 2D", "Navier-Stokes 3D" };
         static int physType = 0;
-        ImGui::Combo("##phys", &physType, physics, IM_ARRAYSIZE(physics));
+        ImGui::Combo("##phys", &physType, physics, 3);
 
         ImGui::Spacing();
-        static const char* materialNames[] = {
-            "Custom", "Air", "Water", "Steel", "Aluminium", "Copper"
-        };
-
-        static const float materialAlpha[] = {
-            1.0e-4f, 2.1e-5f, 1.4e-7f, 1.2e-5f, 8.4e-5f, 1.11e-4f
-        };
-
-        static int materialIndex = 0;
-
         ImGui::Text("Material");
         ImGui::Separator();
+        const char* materialNames[] = { "Custom", "Air", "Water", "Steel", "Aluminium", "Copper" };
+        static const float materialAlpha[] = { 1.0e-4f, 2.1e-5f, 1.4e-7f, 1.2e-5f, 8.4e-5f, 1.11e-4f };
 
-        if (ImGui::Combo("Material", &materialIndex, materialNames, IM_ARRAYSIZE(materialNames)))
-        {
+        if (ImGui::Combo("##material", &materialIndex, materialNames, IM_ARRAYSIZE(materialNames))) {
             if (materialIndex != 0) {
                 alpha = materialAlpha[materialIndex];
             }
         }
+        ImGui::SameLine();
+        ImGui::Text("Material");
 
         ImGui::BeginDisabled(materialIndex != 0);
         ImGui::InputFloat("Alpha [m2/s]", &alpha, 0, 0, "%.2e");
@@ -339,10 +360,46 @@ int main()
         ImGui::Spacing();
         ImGui::Text("Boundary Conditions");
         ImGui::Separator();
-        ImGui::InputFloat("T west [K]", &T_west, 0.1f, 1.0f, "%.2f");
-        ImGui::InputFloat("T east [K]", &T_east, 0.1f, 1.0f, "%.2f");
-        ImGui::InputFloat("T south [K]", &T_south, 0.1f, 1.0f, "%.2f");
-        ImGui::InputFloat("T north [K]", &T_north, 0.1f, 1.0f, "%.2f");
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.4f, 0.1f, 0.1f, 1.0f });
+        ImGui::InputFloat("##west", &T_west, 0.1f, 1.0f, "%.2f");
+        ImGui::PopStyleColor();
+        ImGui::SameLine(); ImGui::Text("T west [K]");
+
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.1f, 0.2f, 0.4f, 1.0f });
+        ImGui::InputFloat("##east", &T_east, 0.1f, 1.0f, "%.2f");
+        ImGui::PopStyleColor();
+        ImGui::SameLine(); ImGui::Text("T east [K]");
+
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.1f, 0.2f, 0.4f, 1.0f });
+        ImGui::InputFloat("##south", &T_south, 0.1f, 1.0f, "%.2f");
+        ImGui::PopStyleColor();
+        ImGui::SameLine(); ImGui::Text("T south [K]");
+
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.1f, 0.2f, 0.4f, 1.0f });
+        ImGui::InputFloat("##north", &T_north, 0.1f, 1.0f, "%.2f");
+        ImGui::PopStyleColor();
+        ImGui::SameLine(); ImGui::Text("T north [K]");
+
+        ImGui::Spacing();
+        ImGui::Text("Simulation");
+        ImGui::Separator();
+        const char* simModes[] = { "Material Comparison", "Transient", "Near Steady", "Manual" };
+        ImGui::Combo("##sim_mode", &simModeIndex, simModes, IM_ARRAYSIZE(simModes));
+        ImGui::SameLine();
+        ImGui::Text("Mode");
+
+        if (simModeIndex == static_cast<int>(SimMode::Manual)) {
+            ImGui::InputFloat("End Time [s]", &manualEndTime, 0.1f, 1.0f, "%.3f");
+            ImGui::SliderInt("Frames", &manualFrames, 2, 120);
+            ImGui::Checkbox("Loop Animation", &loopAnimation);
+        }
+        else {
+            ImGui::BeginDisabled();
+            ImGui::InputFloat("End Time [s]", &manualEndTime, 0.1f, 1.0f, "%.3f");
+            ImGui::SliderInt("Frames", &manualFrames, 2, 120);
+            ImGui::Checkbox("Loop Animation", &loopAnimation);
+            ImGui::EndDisabled();
+        }
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -357,6 +414,26 @@ int main()
                     meshEditor.showViewportWindow(true);
 
                     const auto settings = meshEditor.meshSettings();
+                    const double L = std::max(settings.width, settings.height);
+                    double tEnd = manualEndTime;
+                    int frameCount = manualFrames;
+
+                    if (simModeIndex == static_cast<int>(SimMode::MaterialComparison)) {
+                        tEnd = 0.2 * L * L / 1.0e-4;
+                        frameCount = 40;
+                        loopAnimation = false;
+                    }
+                    else if (simModeIndex == static_cast<int>(SimMode::Transient)) {
+                        tEnd = 0.5 * L * L / alpha;
+                        frameCount = 50;
+                        loopAnimation = false;
+                    }
+                    else if (simModeIndex == static_cast<int>(SimMode::NearSteady)) {
+                        tEnd = 2.0 * L * L / alpha;
+                        frameCount = 60;
+                        loopAnimation = false;
+                    }
+
                     std::thread(solverThread,
                         settings.nx, settings.ny,
                         settings.width, settings.height,
@@ -364,7 +441,9 @@ int main()
                         static_cast<double>(T_west),
                         static_cast<double>(T_east),
                         static_cast<double>(T_south),
-                        static_cast<double>(T_north)).detach();
+                        static_cast<double>(T_north),
+                        tEnd,
+                        frameCount).detach();
                 }
             }
             ImGui::PopStyleColor();

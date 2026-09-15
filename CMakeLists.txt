@@ -7,8 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ── vcpkg toolchain (local vcpkg submodule) ───────────────────────────────────
-# Automatically use the local vcpkg if no toolchain was passed on command line
+# Automatically use the local vcpkg checkout unless a toolchain was supplied.
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE
         "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake"
@@ -41,18 +40,15 @@ add_test(NAME Mesh2DTest COMMAND test_mesh2D)
 add_executable(test_heat_diffusion2D
     CFDSolver/tests/test_heat_diffusion2D.cpp
     CFDSolver/src/solvers/HeatSolver2D.cpp
-    CFDSolver/src/mesh/mesh2D.cpp
-)
+    CFDSolver/src/mesh/mesh2D.cpp)
 target_link_libraries(test_heat_diffusion2D PRIVATE CFDCore)
+add_test(NAME HeatDiffusion2DTest COMMAND test_heat_diffusion2D)
 
 add_executable(heat_diffusion_2D
     CFDSolver/examples/heat_diffusion_2D.cpp
     CFDSolver/src/solvers/HeatSolver2D.cpp
-    CFDSolver/src/mesh/mesh2D.cpp
-)
+    CFDSolver/src/mesh/mesh2D.cpp)
 target_link_libraries(heat_diffusion_2D PRIVATE CFDCore)
-
-add_test(NAME HeatDiffusion2DTest COMMAND test_heat_diffusion2D)
 
 add_executable(heat_diffusion_1D
     CFDSolver/examples/heat_diffusion_1D.cpp)
@@ -60,24 +56,18 @@ target_link_libraries(heat_diffusion_1D PRIVATE CFDCore)
 
 add_executable(test_Fields
     CFDSolver/tests/test_fields.cpp
-    CFDSolver/src/mesh/mesh2D.cpp
-)
+    CFDSolver/src/mesh/mesh2D.cpp)
 target_link_libraries(test_Fields PRIVATE CFDCore)
 add_test(NAME FieldsTest COMMAND test_Fields)
 
 add_executable(tests_BC
     CFDSolver/tests/test_BC.cpp
-    CFDSolver/src/BCs/BC.cpp
-)
-target_include_directories(tests_BC
-    PRIVATE ${CMAKE_SOURCE_DIR}/CFDSolver/src)
+    CFDSolver/src/BCs/BC.cpp)
+target_link_libraries(tests_BC PRIVATE CFDCore)
+add_test(NAME BoundaryConditionTest COMMAND tests_BC)
 
 add_executable(test_BiCGSTAB
-    CFDSolver/tests/test_BiCGSTAB.cpp
-    CFDSolver/src/linearAlgebra/Vector.hpp
-    CFDSolver/src/linearAlgebra/SparseMatrix.hpp
-    CFDSolver/src/linearAlgebra/BiCGSTAB.h
-)
+    CFDSolver/tests/test_BiCGSTAB.cpp)
 target_link_libraries(test_BiCGSTAB PRIVATE CFDCore)
 add_test(NAME BiCGSTABTest COMMAND test_BiCGSTAB)
 
@@ -85,49 +75,45 @@ add_executable(test_SIMPLE
     CFDSolver/tests/test_SIMPLE.cpp
     CFDSolver/src/solvers/SIMPLE.cpp
     CFDSolver/src/mesh/mesh2D.cpp
-    CFDSolver/src/BCs/BC.cpp
-)
+    CFDSolver/src/BCs/BC.cpp)
 target_link_libraries(test_SIMPLE PRIVATE CFDCore)
 add_test(NAME SIMPLETest COMMAND test_SIMPLE)
 
 add_executable(test_staggered_SIMPLE
-    CFDSolver/tests/test_staggered_SIMPLE.cpp
+    CFDSolver/tests/test_staggered_simple.cpp
     CFDSolver/src/solvers/StaggeredSIMPLE.cpp
     CFDSolver/src/mesh/mesh2D.cpp
-    CFDSolver/src/BCs/BC.cpp
-)
+    CFDSolver/src/BCs/BC.cpp)
 target_link_libraries(test_staggered_SIMPLE PRIVATE CFDCore)
 add_test(NAME StaggeredSIMPLETest COMMAND test_staggered_SIMPLE)
 
-# ── UI Application ────────────────────────────────────────────────────────────
 if(BUILD_UI)
-    find_package(nfd    CONFIG REQUIRED)   # nativefiledialog-extended
-    find_package(glfw3  CONFIG REQUIRED)
-    find_package(glad   CONFIG REQUIRED)
-    find_package(glm    CONFIG REQUIRED)
-    find_package(imgui  CONFIG REQUIRED)
+    find_package(nfd CONFIG REQUIRED)
+    find_package(glfw3 CONFIG REQUIRED)
+    find_package(glad CONFIG REQUIRED)
+    find_package(glm CONFIG REQUIRED)
+    find_package(imgui CONFIG REQUIRED)
 
     add_executable(cfd_app
         CFDSolver/examples/cfd_app.cpp
         CFDSolver/src/renderer/MeshEditor2D.cpp
         CFDSolver/src/mesh/mesh2D.cpp
         CFDSolver/src/solvers/HeatSolver2D.cpp
-        CFDSolver/src/IO/MeshReader.cpp        # ← loadOBJ lives here
-    )
+        CFDSolver/src/solvers/StaggeredSIMPLE.cpp
+        CFDSolver/src/BCs/BC.cpp
+        CFDSolver/src/IO/MeshReader.cpp)
 
     target_include_directories(cfd_app PRIVATE
         ${CMAKE_SOURCE_DIR}/CFDSolver/src
-        ${CMAKE_SOURCE_DIR}/CFDSolver/examples
-    )
+        ${CMAKE_SOURCE_DIR}/CFDSolver/examples)
 
     target_link_libraries(cfd_app PRIVATE
         CFDCore
-        nfd::nfd          # ← links nfd.lib, exposes nfd.h
+        nfd::nfd
         glfw
         glad::glad
         glm::glm
-        imgui::imgui
-    )
+        imgui::imgui)
 endif()
 
 message(STATUS "CFDSolver configured")
