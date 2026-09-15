@@ -2,13 +2,10 @@
 #include "fields/StaggeredFields.h"
 
 #include <cmath>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
-#include <string>
-#include <vector>
 
 using namespace CFD;
 
@@ -16,18 +13,9 @@ namespace
 {
     bool allFieldsFinite(const StaggeredFields& fields)
     {
-        for (double value : fields.pressureData())
-        {
-            if (!std::isfinite(value)) return false;
-        }
-        for (double value : fields.uData())
-        {
-            if (!std::isfinite(value)) return false;
-        }
-        for (double value : fields.vData())
-        {
-            if (!std::isfinite(value)) return false;
-        }
+        for (double value : fields.pressureData()) if (!std::isfinite(value)) return false;
+        for (double value : fields.uData()) if (!std::isfinite(value)) return false;
+        for (double value : fields.vData()) if (!std::isfinite(value)) return false;
         return true;
     }
 
@@ -35,10 +23,7 @@ namespace
     {
         double massFlow = 0.0;
         const double area = mesh.eastWestFaceArea();
-        for (int j = 0; j < mesh.getNy(); ++j)
-        {
-            massFlow += rho * fields.u(0, j) * area;
-        }
+        for (int j = 0; j < mesh.getNy(); ++j) massFlow += rho * fields.u(0, j) * area;
         return massFlow;
     }
 
@@ -46,122 +31,8 @@ namespace
     {
         double massFlow = 0.0;
         const double area = mesh.eastWestFaceArea();
-        for (int j = 0; j < mesh.getNy(); ++j)
-        {
-            massFlow += rho * fields.u(mesh.getNx(), j) * area;
-        }
+        for (int j = 0; j < mesh.getNy(); ++j) massFlow += rho * fields.u(mesh.getNx(), j) * area;
         return massFlow;
-    }
-
-    void printFaceVelocityGrids(const Mesh& mesh, const StaggeredFields& fields)
-    {
-        std::cout << "\nU velocity on vertical faces\n";
-        std::cout << "------------------------------------------------------------\n";
-
-        for (int j = mesh.getNy() - 1; j >= 0; --j)
-        {
-            std::cout << "j=" << j << " : ";
-            for (int i = 0; i <= mesh.getNx(); ++i)
-            {
-                std::cout << std::setw(11)
-                    << std::fixed
-                    << std::setprecision(5)
-                    << fields.u(i, j);
-            }
-            std::cout << "\n";
-        }
-
-        std::cout << "\nV velocity on horizontal faces\n";
-        std::cout << "------------------------------------------------------------\n";
-
-        for (int j = mesh.getNy(); j >= 0; --j)
-        {
-            std::cout << "j=" << j << " : ";
-            for (int i = 0; i < mesh.getNx(); ++i)
-            {
-                std::cout << std::setw(11)
-                    << std::fixed
-                    << std::setprecision(5)
-                    << fields.v(i, j);
-            }
-            std::cout << "\n";
-        }
-    }
-
-    void printCellCenteredVelocityTable(const Mesh& mesh, const StaggeredFields& fields)
-    {
-        std::cout << "\nCell-centred U velocity table (compare with Fluent)\n";
-        std::cout << "============================================================\n";
-        std::cout << "y\\x";
-        for (int i = 0; i < mesh.getNx(); ++i)
-        {
-            const double x = (static_cast<double>(i) + 0.5) * mesh.getDx();
-            std::cout << std::setw(12) << std::fixed << std::setprecision(3) << x;
-        }
-        std::cout << "\n";
-
-        for (int j = mesh.getNy() - 1; j >= 0; --j)
-        {
-            const double y = (static_cast<double>(j) + 0.5) * mesh.getDy();
-            std::cout << std::setw(4) << std::fixed << std::setprecision(3) << y;
-            for (int i = 0; i < mesh.getNx(); ++i)
-            {
-                const double uCell = 0.5 * (fields.u(i, j) + fields.u(i + 1, j));
-                std::cout << std::setw(12) << std::fixed << std::setprecision(6) << uCell;
-            }
-            std::cout << "\n";
-        }
-
-        std::cout << "\nCell-centred V velocity table (compare with Fluent)\n";
-        std::cout << "============================================================\n";
-        std::cout << "y\\x";
-        for (int i = 0; i < mesh.getNx(); ++i)
-        {
-            const double x = (static_cast<double>(i) + 0.5) * mesh.getDx();
-            std::cout << std::setw(12) << std::fixed << std::setprecision(3) << x;
-        }
-        std::cout << "\n";
-
-        for (int j = mesh.getNy() - 1; j >= 0; --j)
-        {
-            const double y = (static_cast<double>(j) + 0.5) * mesh.getDy();
-            std::cout << std::setw(4) << std::fixed << std::setprecision(3) << y;
-            for (int i = 0; i < mesh.getNx(); ++i)
-            {
-                const double vCell = 0.5 * (fields.v(i, j) + fields.v(i, j + 1));
-                std::cout << std::setw(12) << std::fixed << std::setprecision(6) << vCell;
-            }
-            std::cout << "\n";
-        }
-    }
-
-    void writeCellCenteredVelocityCSV(const Mesh& mesh, const StaggeredFields& fields, const std::string& filename)
-    {
-        std::ofstream file(filename);
-        if (!file)
-        {
-            throw std::runtime_error("Failed to open output file: " + filename);
-        }
-
-        file << "x,y,u,v,p\n";
-
-        for (int j = 0; j < mesh.getNy(); ++j)
-        {
-            for (int i = 0; i < mesh.getNx(); ++i)
-            {
-                const double x = (static_cast<double>(i) + 0.5) * mesh.getDx();
-                const double y = (static_cast<double>(j) + 0.5) * mesh.getDy();
-                const double uCell = 0.5 * (fields.u(i, j) + fields.u(i + 1, j));
-                const double vCell = 0.5 * (fields.v(i, j) + fields.v(i, j + 1));
-                const double pCell = fields.p(i, j);
-
-                file << x << ','
-                    << y << ','
-                    << uCell << ','
-                    << vCell << ','
-                    << pCell << '\n';
-            }
-        }
     }
 }
 
@@ -169,27 +40,24 @@ int main()
 {
     try
     {
-        std::cout << "============================================================\n";
-        std::cout << "      STAGGERED SIMPLE Structured-Pipe Regression Test      \n";
-        std::cout << "============================================================\n";
-
-        const double rho = 1.0;
-        const double mu = 0.01;
-        const double inletU = 1.0;
-        const double inletV = 0.0;
-        const double outletPressure = 0.0;
-
-        const int nx = 8;
-        const int ny = 8;
-        const double width = 5.0;
-        const double height = 1.0;
+        constexpr double rho = 1.0;
+        constexpr double mu = 0.01;
+        constexpr double inletU = 1.0;
+        constexpr double outletPressure = 0.0;
+        constexpr int nx = 8;
+        constexpr int ny = 8;
+        constexpr double width = 5.0;
+        constexpr double height = 1.0;
+        constexpr double continuityTolerance = 1.0e-5;
+        constexpr double momentumTolerance = 1.0e-6;
+        constexpr std::size_t maxOuterSteps = 400;
 
         Mesh mesh(nx, ny, width, height);
         StaggeredFields fields(nx, ny);
         fields.initialise(0.0, 0.0, 0.0);
 
         BoundaryCondition westBC(BoundarySide::west, BoundaryType::Inlet);
-        westBC.setVelocity(inletU, inletV);
+        westBC.setVelocity(inletU, 0.0);
 
         BoundaryCondition eastBC(BoundarySide::east, BoundaryType::Outlet);
         eastBC.setPressure(outletPressure);
@@ -205,62 +73,56 @@ int main()
         simple.setViscosity(mu);
         simple.setVelocityRelaxation(0.5);
         simple.setPressureRelaxation(0.3);
-        simple.setConvergenceTolerance(1.0e-5);
+        simple.setConvergenceTolerance(continuityTolerance);
+        simple.setMomentumConvergenceTolerance(momentumTolerance);
+
+        // One SIMPLE sweep per call lets this test print one complete residual
+        // triplet per outer step while retaining the current field state.
         simple.setMaxIterations(1);
 
-        const std::size_t maxOuterSteps = 400;
-
+        std::cout << "Step | continuity | U momentum | V momentum | inlet | outlet | imbalance\n";
         for (std::size_t step = 1; step <= maxOuterSteps; ++step)
         {
             simple.solve();
 
-            const double residual = simple.getResidual();
-            if (!std::isfinite(residual))
+            const double continuity = simple.getContinuityResidual();
+            const double uMomentum = simple.getUMomentumResidual();
+            const double vMomentum = simple.getVMomentumResidual();
+            if (!std::isfinite(continuity) || !std::isfinite(uMomentum) ||
+                !std::isfinite(vMomentum) || !allFieldsFinite(fields))
             {
-                throw std::runtime_error("Residual became NaN/Inf");
-            }
-            if (!allFieldsFinite(fields))
-            {
-                throw std::runtime_error("Field variable became NaN/Inf");
+                throw std::runtime_error("Solver produced a non-finite residual or field value");
             }
 
             const double mIn = inletMassFlow(mesh, fields, rho);
             const double mOut = outletMassFlow(mesh, fields, rho);
+            const bool converged =
+                continuity < continuityTolerance &&
+                uMomentum < momentumTolerance &&
+                vMomentum < momentumTolerance;
 
-            if (step == 1 || step % 10 == 0 || residual < simple.getConvergenceTolerance())
+            if (step == 1 || step % 10 == 0 || converged)
             {
-                std::cout << "Step " << std::setw(4) << step
-                    << " | residual = " << std::scientific << residual
-                    << " | inlet = " << mIn
-                    << " | outlet = " << mOut
-                    << " | |m_in-m_out| = " << std::abs(mIn - mOut)
-                    << "\n";
+                std::cout << std::setw(4) << step << " | "
+                    << std::scientific << std::setprecision(4)
+                    << continuity << " | " << uMomentum << " | " << vMomentum << " | "
+                    << mIn << " | " << mOut << " | " << std::abs(mIn - mOut) << '\n';
             }
 
-            if (residual < simple.getConvergenceTolerance())
+            if (converged)
             {
                 std::cout << "\nConverged after " << step << " outer SIMPLE steps.\n";
-                printFaceVelocityGrids(mesh, fields);
-                printCellCenteredVelocityTable(mesh, fields);
-                writeCellCenteredVelocityCSV(mesh, fields, "staggered_velocity_output.csv");
-                std::cout << "\nWrote cell-centred velocity data to staggered_velocity_output.csv\n";
                 return 0;
             }
         }
 
-        std::cout << "\nSolver did not reach tolerance within " << maxOuterSteps << " outer SIMPLE steps.\n";
-        printFaceVelocityGrids(mesh, fields);
-        printCellCenteredVelocityTable(mesh, fields);
-        writeCellCenteredVelocityCSV(mesh, fields, "staggered_velocity_output.csv");
-        std::cout << "\nWrote cell-centred velocity data to staggered_velocity_output.csv\n";
+        std::cerr << "\nSolver did not satisfy all three convergence criteria within "
+            << maxOuterSteps << " outer steps.\n";
         return 1;
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        std::cerr << "\n============================================================\n";
-        std::cerr << "TEST FAILED WITH EXCEPTION\n";
-        std::cerr << "============================================================\n";
-        std::cerr << e.what() << "\n";
+        std::cerr << "Test failed: " << exception.what() << '\n';
         return 1;
     }
 }
