@@ -17,10 +17,15 @@ namespace CFD
         Mesh& mesh;
         StaggeredFields& fields;
 
-        BoundaryCondition& northBC;
+        
+            BoundaryCondition& northBC;
         BoundaryCondition& southBC;
         BoundaryCondition& eastBC;
         BoundaryCondition& westBC;
+
+        // ------------------------------------------------------------
+        // Linear systems
+        // ------------------------------------------------------------
 
         SparseMatrix uMatrix;
         Vector uRHS;
@@ -32,19 +37,58 @@ namespace CFD
         Vector pressureRHS;
         Vector pressureCorrection;
 
+        // ------------------------------------------------------------
+        // Solver settings
+        // ------------------------------------------------------------
+
         double relaxationPressure{ 0.3 };
         double relaxationVelocity{ 0.7 };
+
         double rho{ 1.0 };
         double mu{ 0.01 };
 
         double convergenceTolerance{ 1.0e-6 };
+        double momentumTolerance_{ 1.0e-6 };
+
         std::size_t maxIterations{ 1000 };
 
+        // ------------------------------------------------------------
+        // Iteration state
+        // ------------------------------------------------------------
+
         std::size_t iteration{ 0 };
-        double residual{ 0.0 };
+
+        bool converged_{ false };
+        bool finished_{ false };
+
+        // Legacy residual.
+        // This remains equal to the continuity residual.
+        double residual{
+            0.0
+        };
+
+        double continuityResidual_{
+            0.0
+        };
+
+        double uMomentumResidual_{
+            0.0
+        };
+
+        double vMomentumResidual_{
+            0.0
+        };
+
+        // ------------------------------------------------------------
+        // SIMPLE velocity correction coefficients
+        // ------------------------------------------------------------
 
         std::vector<double> dU;
         std::vector<double> dV;
+
+        // ------------------------------------------------------------
+        // Internal methods
+        // ------------------------------------------------------------
 
         void applyBoundaryConditions();
 
@@ -60,10 +104,17 @@ namespace CFD
         void correctPressure();
         void correctVelocities();
 
+        void updateMomentumResiduals();
+
         double calculateResidual();
         bool checkConvergence();
 
     public:
+
+        // ------------------------------------------------------------
+        // Constructor
+        // ------------------------------------------------------------
+
         StaggeredSIMPLE(
             Mesh& mesh,
             StaggeredFields& fields,
@@ -72,30 +123,89 @@ namespace CFD
             BoundaryCondition& eastBC,
             BoundaryCondition& westBC);
 
+        // ------------------------------------------------------------
+        // Settings
+        // ------------------------------------------------------------
+
         void setPressureRelaxation(double value);
         void setVelocityRelaxation(double value);
+
         void setConvergenceTolerance(double value);
+        void setMomentumConvergenceTolerance(double value);
+
         void setMaxIterations(std::size_t value);
+
         void setDensity(double value);
         void setViscosity(double value);
 
+        // ------------------------------------------------------------
+        // Settings getters
+        // ------------------------------------------------------------
+
         double getPressureRelaxation() const;
         double getVelocityRelaxation() const;
+
         double getConvergenceTolerance() const;
+        double getMomentumConvergenceTolerance() const;
+
         double getDensity() const;
         double getViscosity() const;
+
         std::size_t getMaxIterations() const;
+
+        // ------------------------------------------------------------
+        // Iteration information
+        // ------------------------------------------------------------
+
         std::size_t getIteration() const;
+
+        // ------------------------------------------------------------
+        // Residuals
+        // ------------------------------------------------------------
+
+        // Legacy getter.
+        // Returns continuity residual.
         double getResidual() const;
 
-        // One SIMPLE iteration.
-        // This allows cfd_app to animate the solution.
+        double getContinuityResidual() const;
+        double getUMomentumResidual() const;
+        double getVMomentumResidual() const;
+
+        // ------------------------------------------------------------
+        // Iterative solver interface
+        // ------------------------------------------------------------
+
+        /*
+         * Performs exactly ONE SIMPLE iteration.
+         *
+         * This is the function used by the GUI animation thread.
+         */
         void step();
 
-        // True when converged or maximum iterations reached.
+        /*
+         * Returns true when either:
+         *
+         * 1. The SIMPLE solution has converged, or
+         * 2. Maximum iterations have been reached.
+         */
         bool finished() const;
 
-        // Runs the solver to completion without requiring the GUI.
+        /*
+         * Returns whether the current solution has actually converged.
+         */
+        bool converged() const;
+
+        // ------------------------------------------------------------
+        // Full solve
+        // ------------------------------------------------------------
+
+        /*
+         * Runs SIMPLE until convergence or maximum iterations.
+         *
+         * This is retained for non-GUI / normal solver usage.
+         */
         void solve();
     };
+    
+
 }

@@ -2,6 +2,7 @@
 
 #include "linearAlgebra/BiCGSTAB.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -14,9 +15,11 @@ namespace CFD
     {
         constexpr double SMALL = 1.0e-14;
 
-        double safeDiagonal(double value)
+        
+            double safeDiagonal(double value)
         {
-            if (!std::isfinite(value) || std::abs(value) < SMALL)
+            if (!std::isfinite(value) ||
+                std::abs(value) < SMALL)
             {
                 return SMALL;
             }
@@ -25,23 +28,24 @@ namespace CFD
         }
     }
 
+
+    // ================================================================
+    // DIAGONAL EXTRACTION
+    // ================================================================
+
     static double getDiagonal(
         const SparseMatrix& matrix,
         std::size_t P)
     {
         if (P >= matrix.rows())
-        {
             return 0.0;
-        }
 
         const auto& rp = matrix.rowPtr();
         const auto& ci = matrix.colIndices();
         const auto& vv = matrix.values();
 
         if (rp.size() < matrix.rows() + 1)
-        {
             return 0.0;
-        }
 
         if (rp[P] > rp[P + 1] ||
             rp[P + 1] > ci.size() ||
@@ -55,12 +59,63 @@ namespace CFD
             ++k)
         {
             if (ci[k] == P)
-            {
                 return vv[k];
-            }
         }
 
         return 0.0;
+    }
+
+
+    // ================================================================
+    // RELATIVE ALGEBRAIC RESIDUAL
+    // ================================================================
+
+    static double relativeAlgebraicResidual(
+        const SparseMatrix& matrix,
+        const Vector& solution,
+        const Vector& rhs)
+    {
+        const auto& rowPtr = matrix.rowPtr();
+        const auto& colIdx = matrix.colIndices();
+        const auto& values = matrix.values();
+
+        if (rowPtr.size() != matrix.rows() + 1 ||
+            solution.size() != matrix.cols() ||
+            rhs.size() != matrix.rows())
+        {
+            return std::numeric_limits<double>::infinity();
+        }
+
+        double l1Residual = 0.0;
+        double l1Rhs = 0.0;
+
+        for (std::size_t row = 0;
+            row < matrix.rows();
+            ++row)
+        {
+            double ax = 0.0;
+
+            for (std::size_t k = rowPtr[row];
+                k < rowPtr[row + 1];
+                ++k)
+            {
+                ax +=
+                    values[k] *
+                    solution[colIdx[k]];
+            }
+
+            l1Residual +=
+                std::abs(
+                    ax - rhs[row]);
+
+            l1Rhs +=
+                std::abs(
+                    rhs[row]);
+        }
+
+        return
+            l1Residual /
+            std::max(l1Rhs, 1.0);
     }
 
 
@@ -82,17 +137,26 @@ namespace CFD
         southBC(southBC),
         eastBC(eastBC),
         westBC(westBC),
-        residual(std::numeric_limits<double>::infinity()),
-        iteration(0)
+        residual(
+            std::numeric_limits<double>::infinity()),
+        continuityResidual_(
+            std::numeric_limits<double>::infinity()),
+        uMomentumResidual_(
+            std::numeric_limits<double>::infinity()),
+        vMomentumResidual_(
+            std::numeric_limits<double>::infinity())
     {
+        const int nx = mesh.getNx();
+        const int ny = mesh.getNy();
+
         dU.assign(
             static_cast<std::size_t>(
-                (mesh.getNx() + 1) * mesh.getNy()),
+                (nx + 1) * ny),
             0.0);
 
         dV.assign(
             static_cast<std::size_t>(
-                mesh.getNx() * (mesh.getNy() + 1)),
+                nx * (ny + 1)),
             0.0);
     }
 
@@ -101,7 +165,8 @@ namespace CFD
     // SETTINGS
     // ================================================================
 
-    void StaggeredSIMPLE::setPressureRelaxation(double value)
+    void StaggeredSIMPLE::setPressureRelaxation(
+        double value)
     {
         if (!std::isfinite(value) ||
             value <= 0.0 ||
@@ -115,7 +180,8 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setVelocityRelaxation(double value)
+    void StaggeredSIMPLE::setVelocityRelaxation(
+        double value)
     {
         if (!std::isfinite(value) ||
             value <= 0.0 ||
@@ -129,19 +195,36 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setConvergenceTolerance(double value)
+    void StaggeredSIMPLE::setConvergenceTolerance(
+        double value)
     {
-        if (!std::isfinite(value) || value <= 0.0)
+        if (!std::isfinite(value) ||
+            value <= 0.0)
         {
             throw std::runtime_error(
-                "StaggeredSIMPLE: convergence tolerance must be positive");
+                "StaggeredSIMPLE: continuity tolerance must be positive");
         }
 
         convergenceTolerance = value;
     }
 
 
-    void StaggeredSIMPLE::setMaxIterations(std::size_t value)
+    void StaggeredSIMPLE::setMomentumConvergenceTolerance(
+        double value)
+    {
+        if (!std::isfinite(value) ||
+            value <= 0.0)
+        {
+            throw std::runtime_error(
+                "StaggeredSIMPLE: momentum tolerance must be positive");
+        }
+
+        momentumTolerance_ = value;
+    }
+
+
+    void StaggeredSIMPLE::setMaxIterations(
+        std::size_t value)
     {
         if (value == 0)
         {
@@ -153,9 +236,11 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setDensity(double value)
+    void StaggeredSIMPLE::setDensity(
+        double value)
     {
-        if (!std::isfinite(value) || value <= 0.0)
+        if (!std::isfinite(value) ||
+            value <= 0.0)
         {
             throw std::runtime_error(
                 "StaggeredSIMPLE: density must be positive");
@@ -165,9 +250,11 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setViscosity(double value)
+    void StaggeredSIMPLE::setViscosity(
+        double value)
     {
-        if (!std::isfinite(value) || value <= 0.0)
+        if (!std::isfinite(value) ||
+            value <= 0.0)
         {
             throw std::runtime_error(
                 "StaggeredSIMPLE: viscosity must be positive");
@@ -176,6 +263,10 @@ namespace CFD
         mu = value;
     }
 
+
+    // ================================================================
+    // GETTERS
+    // ================================================================
 
     double StaggeredSIMPLE::getPressureRelaxation() const
     {
@@ -192,6 +283,12 @@ namespace CFD
     double StaggeredSIMPLE::getConvergenceTolerance() const
     {
         return convergenceTolerance;
+    }
+
+
+    double StaggeredSIMPLE::getMomentumConvergenceTolerance() const
+    {
+        return momentumTolerance_;
     }
 
 
@@ -221,7 +318,25 @@ namespace CFD
 
     double StaggeredSIMPLE::getResidual() const
     {
-        return residual;
+        return continuityResidual_;
+    }
+
+
+    double StaggeredSIMPLE::getContinuityResidual() const
+    {
+        return continuityResidual_;
+    }
+
+
+    double StaggeredSIMPLE::getUMomentumResidual() const
+    {
+        return uMomentumResidual_;
+    }
+
+
+    double StaggeredSIMPLE::getVMomentumResidual() const
+    {
+        return vMomentumResidual_;
     }
 
 
@@ -234,71 +349,51 @@ namespace CFD
         const int nx = mesh.getNx();
         const int ny = mesh.getNy();
 
-        // West inlet U
+        // ------------------------------------------------------------
+        // West U boundary
+        // ------------------------------------------------------------
+
         for (int j = 0; j < ny; ++j)
         {
             if (westBC.hasU())
             {
-                fields.u(0, j) = westBC.getU();
+                fields.u(0, j) =
+                    westBC.getU();
             }
         }
 
-        // South / North V
+        // ------------------------------------------------------------
+        // South / North V boundaries
+        // ------------------------------------------------------------
+
         for (int i = 0; i < nx; ++i)
         {
             if (southBC.hasV())
             {
-                fields.v(i, 0) = southBC.getV();
+                fields.v(i, 0) =
+                    southBC.getV();
             }
 
             if (northBC.hasV())
             {
-                fields.v(i, ny) = northBC.getV();
+                fields.v(i, ny) =
+                    northBC.getV();
             }
         }
 
-        // South / North U
-        for (int i = 0; i <= nx; ++i)
-        {
-            if (southBC.hasU() && i < nx)
-            {
-                fields.u(i, 0) = southBC.getU();
-            }
-
-            if (northBC.hasU() && i < nx)
-            {
-                fields.u(i, ny - 1) = northBC.getU();
-            }
-        }
-
-        // West / East V
-        for (int j = 0; j <= ny; ++j)
-        {
-            if (westBC.hasV() && j < ny)
-            {
-                fields.v(0, j) = westBC.getV();
-            }
-
-            if (eastBC.hasV() && j < ny)
-            {
-                fields.v(nx - 1, j) = eastBC.getV();
-            }
-        }
-
-        // Outlet pressure
-        if (eastBC.hasPressure())
-        {
-            for (int j = 0; j < ny; ++j)
-            {
-                fields.p(nx - 1, j) =
-                    eastBC.getPressure();
-            }
-        }
+        /*
+         * Tangential velocity components are not directly overwritten here.
+         *
+         * Their wall values are imposed through the half-cell diffusion
+         * terms in the momentum equations.
+         *
+         * Pressure remains cell-centred.
+         */
     }
 
 
     // ================================================================
-    // U MOMENTUM
+    // U MOMENTUM ASSEMBLY
     // ================================================================
 
     void StaggeredSIMPLE::assembleUMomentum()
@@ -314,13 +409,23 @@ namespace CFD
         std::vector<std::size_t> cols;
         std::vector<double> values;
 
-        uRHS = Vector(nU, 0.0);
+        uRHS =
+            Vector(nU, 0.0);
 
-        const double dx = mesh.getDx();
-        const double dy = mesh.getDy();
+        const double dx =
+            mesh.getDx();
 
-        const double Ae = mesh.eastWestFaceArea();
-        const double An = mesh.northSouthFaceArea();
+        const double dy =
+            mesh.getDy();
+
+        const double Ae =
+            mesh.eastWestFaceArea();
+
+        const double An =
+            mesh.northSouthFaceArea();
+
+        const double Dw =
+            mu * An / dy;
 
         rows.reserve(5 * nU);
         cols.reserve(5 * nU);
@@ -334,10 +439,13 @@ namespace CFD
                     static_cast<std::size_t>(
                         fields.uIndex(i, j));
 
+                // ----------------------------------------------------
+                // Fixed west U boundary
+                // ----------------------------------------------------
+
                 const bool fixed =
-                    (i == 0 && westBC.hasU()) ||
-                    (j == 0 && southBC.hasU()) ||
-                    (j == ny - 1 && northBC.hasU());
+                    (i == 0 &&
+                        westBC.hasU());
 
                 if (fixed)
                 {
@@ -345,29 +453,18 @@ namespace CFD
                     cols.push_back(P);
                     values.push_back(1.0);
 
-                    double prescribed =
-                        fields.u(i, j);
+                    uRHS[P] =
+                        westBC.getU();
 
-                    if (i == 0 && westBC.hasU())
-                    {
-                        prescribed = westBC.getU();
-                    }
-
-                    if (j == 0 && southBC.hasU())
-                    {
-                        prescribed = southBC.getU();
-                    }
-
-                    if (j == ny - 1 && northBC.hasU())
-                    {
-                        prescribed = northBC.getU();
-                    }
-
-                    uRHS[P] = prescribed;
-                    dU[P] = 0.0;
+                    dU[P] =
+                        0.0;
 
                     continue;
                 }
+
+                // ----------------------------------------------------
+                // Diffusion coefficients
+                // ----------------------------------------------------
 
                 const double aE =
                     (i < nx)
@@ -381,16 +478,24 @@ namespace CFD
 
                 const double aN =
                     (j < ny - 1)
-                    ? mu * An / dy
-                    : 0.0;
+                    ? Dw
+                    : (northBC.hasU()
+                        ? 2.0 * Dw
+                        : 0.0);
 
                 const double aS =
                     (j > 0)
-                    ? mu * An / dy
-                    : 0.0;
+                    ? Dw
+                    : (southBC.hasU()
+                        ? 2.0 * Dw
+                        : 0.0);
 
                 const double aPNoRelax =
-                    aE + aW + aN + aS + SMALL;
+                    aE +
+                    aW +
+                    aN +
+                    aS +
+                    SMALL;
 
                 const double aP =
                     safeDiagonal(
@@ -400,6 +505,10 @@ namespace CFD
                 dU[P] =
                     Ae / aP;
 
+                // ----------------------------------------------------
+                // Pressure source
+                // ----------------------------------------------------
+
                 const double pW =
                     (i > 0)
                     ? fields.p(i - 1, j)
@@ -408,16 +517,44 @@ namespace CFD
                 const double pE =
                     (i < nx)
                     ? fields.p(i, j)
-                    : eastBC.hasPressure()
-                    ? eastBC.getPressure()
-                    : fields.p(nx - 1, j);
+                    : (eastBC.hasPressure()
+                        ? eastBC.getPressure()
+                        : fields.p(nx - 1, j));
 
-                const double source =
-                    (pW - pE) * Ae +
+                double source =
+                    (pW - pE) * Ae;
+
+                source +=
                     ((1.0 - relaxationVelocity) /
                         relaxationVelocity) *
                     aPNoRelax *
                     fields.u(i, j);
+
+                // ----------------------------------------------------
+                // Tangential wall velocity
+                // ----------------------------------------------------
+
+                if (j == 0 &&
+                    southBC.hasU())
+                {
+                    source +=
+                        2.0 *
+                        Dw *
+                        southBC.getU();
+                }
+
+                if (j == ny - 1 &&
+                    northBC.hasU())
+                {
+                    source +=
+                        2.0 *
+                        Dw *
+                        northBC.getU();
+                }
+
+                // ----------------------------------------------------
+                // Matrix entries
+                // ----------------------------------------------------
 
                 rows.push_back(P);
                 cols.push_back(P);
@@ -429,7 +566,6 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.uIndex(i + 1, j)));
-
                     values.push_back(-aE);
                 }
 
@@ -439,7 +575,6 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.uIndex(i - 1, j)));
-
                     values.push_back(-aW);
                 }
 
@@ -449,7 +584,6 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.uIndex(i, j + 1)));
-
                     values.push_back(-aN);
                 }
 
@@ -459,16 +593,18 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.uIndex(i, j - 1)));
-
                     values.push_back(-aS);
                 }
 
-                uRHS[P] = source;
+                uRHS[P] =
+                    source;
             }
         }
 
         uMatrix =
-            SparseMatrix(nU, nU);
+            SparseMatrix(
+                nU,
+                nU);
 
         uMatrix.setFromTriplets(
             rows,
@@ -476,6 +612,10 @@ namespace CFD
             values);
     }
 
+
+    // ================================================================
+    // U MOMENTUM SOLVE
+    // ================================================================
 
     void StaggeredSIMPLE::solveUMomentum()
     {
@@ -486,7 +626,9 @@ namespace CFD
                 (mesh.getNx() + 1) *
                 mesh.getNy());
 
-        Vector solution(nU, 0.0);
+        Vector solution(
+            nU,
+            0.0);
 
         for (std::size_t k = 0;
             k < nU;
@@ -500,7 +642,7 @@ namespace CFD
             1.0e-8,
             10000);
 
-        BiCGSTABResult result =
+        const BiCGSTABResult result =
             solver.solve(
                 uMatrix,
                 uRHS,
@@ -524,7 +666,7 @@ namespace CFD
 
 
     // ================================================================
-    // V MOMENTUM
+    // V MOMENTUM ASSEMBLY
     // ================================================================
 
     void StaggeredSIMPLE::assembleVMomentum()
@@ -540,13 +682,23 @@ namespace CFD
         std::vector<std::size_t> cols;
         std::vector<double> values;
 
-        vRHS = Vector(nV, 0.0);
+        vRHS =
+            Vector(nV, 0.0);
 
-        const double dx = mesh.getDx();
-        const double dy = mesh.getDy();
+        const double dx =
+            mesh.getDx();
 
-        const double Ae = mesh.eastWestFaceArea();
-        const double An = mesh.northSouthFaceArea();
+        const double dy =
+            mesh.getDy();
+
+        const double Ae =
+            mesh.eastWestFaceArea();
+
+        const double An =
+            mesh.northSouthFaceArea();
+
+        const double Dv =
+            mu * Ae / dx;
 
         rows.reserve(5 * nV);
         cols.reserve(5 * nV);
@@ -560,11 +712,15 @@ namespace CFD
                     static_cast<std::size_t>(
                         fields.vIndex(i, j));
 
+                // ----------------------------------------------------
+                // Fixed south/north V boundary
+                // ----------------------------------------------------
+
                 const bool fixed =
-                    (j == 0 && southBC.hasV()) ||
-                    (j == ny && northBC.hasV()) ||
-                    (i == 0 && westBC.hasV()) ||
-                    (i == nx - 1 && eastBC.hasV());
+                    (j == 0 &&
+                        southBC.hasV()) ||
+                    (j == ny &&
+                        northBC.hasV());
 
                 if (fixed)
                 {
@@ -572,44 +728,34 @@ namespace CFD
                     cols.push_back(P);
                     values.push_back(1.0);
 
-                    double prescribed =
-                        fields.v(i, j);
+                    vRHS[P] =
+                        (j == 0)
+                        ? southBC.getV()
+                        : northBC.getV();
 
-                    if (j == 0 && southBC.hasV())
-                    {
-                        prescribed = southBC.getV();
-                    }
-
-                    if (j == ny && northBC.hasV())
-                    {
-                        prescribed = northBC.getV();
-                    }
-
-                    if (i == 0 && westBC.hasV())
-                    {
-                        prescribed = westBC.getV();
-                    }
-
-                    if (i == nx - 1 && eastBC.hasV())
-                    {
-                        prescribed = eastBC.getV();
-                    }
-
-                    vRHS[P] = prescribed;
-                    dV[P] = 0.0;
+                    dV[P] =
+                        0.0;
 
                     continue;
                 }
 
+                // ----------------------------------------------------
+                // Diffusion coefficients
+                // ----------------------------------------------------
+
                 const double aE =
                     (i < nx - 1)
-                    ? mu * Ae / dx
-                    : 0.0;
+                    ? Dv
+                    : (eastBC.hasV()
+                        ? 2.0 * Dv
+                        : 0.0);
 
                 const double aW =
                     (i > 0)
-                    ? mu * Ae / dx
-                    : 0.0;
+                    ? Dv
+                    : (westBC.hasV()
+                        ? 2.0 * Dv
+                        : 0.0);
 
                 const double aN =
                     (j < ny)
@@ -622,7 +768,11 @@ namespace CFD
                     : 0.0;
 
                 const double aPNoRelax =
-                    aE + aW + aN + aS + SMALL;
+                    aE +
+                    aW +
+                    aN +
+                    aS +
+                    SMALL;
 
                 const double aP =
                     safeDiagonal(
@@ -631,6 +781,10 @@ namespace CFD
 
                 dV[P] =
                     An / aP;
+
+                // ----------------------------------------------------
+                // Pressure source
+                // ----------------------------------------------------
 
                 const double pS =
                     (j > 0)
@@ -642,12 +796,40 @@ namespace CFD
                     ? fields.p(i, j)
                     : fields.p(i, ny - 1);
 
-                const double source =
-                    (pS - pN) * An +
+                double source =
+                    (pS - pN) * An;
+
+                source +=
                     ((1.0 - relaxationVelocity) /
                         relaxationVelocity) *
                     aPNoRelax *
                     fields.v(i, j);
+
+                // ----------------------------------------------------
+                // Tangential wall velocity
+                // ----------------------------------------------------
+
+                if (i == 0 &&
+                    westBC.hasV())
+                {
+                    source +=
+                        2.0 *
+                        Dv *
+                        westBC.getV();
+                }
+
+                if (i == nx - 1 &&
+                    eastBC.hasV())
+                {
+                    source +=
+                        2.0 *
+                        Dv *
+                        eastBC.getV();
+                }
+
+                // ----------------------------------------------------
+                // Matrix entries
+                // ----------------------------------------------------
 
                 rows.push_back(P);
                 cols.push_back(P);
@@ -659,7 +841,6 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.vIndex(i + 1, j)));
-
                     values.push_back(-aE);
                 }
 
@@ -669,7 +850,6 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.vIndex(i - 1, j)));
-
                     values.push_back(-aW);
                 }
 
@@ -679,7 +859,6 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.vIndex(i, j + 1)));
-
                     values.push_back(-aN);
                 }
 
@@ -689,16 +868,18 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.vIndex(i, j - 1)));
-
                     values.push_back(-aS);
                 }
 
-                vRHS[P] = source;
+                vRHS[P] =
+                    source;
             }
         }
 
         vMatrix =
-            SparseMatrix(nV, nV);
+            SparseMatrix(
+                nV,
+                nV);
 
         vMatrix.setFromTriplets(
             rows,
@@ -706,6 +887,10 @@ namespace CFD
             values);
     }
 
+
+    // ================================================================
+    // V MOMENTUM SOLVE
+    // ================================================================
 
     void StaggeredSIMPLE::solveVMomentum()
     {
@@ -716,7 +901,9 @@ namespace CFD
                 mesh.getNx() *
                 (mesh.getNy() + 1));
 
-        Vector solution(nV, 0.0);
+        Vector solution(
+            nV,
+            0.0);
 
         for (std::size_t k = 0;
             k < nV;
@@ -730,7 +917,7 @@ namespace CFD
             1.0e-8,
             10000);
 
-        BiCGSTABResult result =
+        const BiCGSTABResult result =
             solver.solve(
                 vMatrix,
                 vRHS,
@@ -754,7 +941,7 @@ namespace CFD
 
 
     // ================================================================
-    // PRESSURE CORRECTION
+    // PRESSURE CORRECTION ASSEMBLY
     // ================================================================
 
     void StaggeredSIMPLE::assemblePressureCorrection()
@@ -772,9 +959,6 @@ namespace CFD
 
         pressureRHS =
             Vector(nP, 0.0);
-
-        const double dx = mesh.getDx();
-        const double dy = mesh.getDy();
 
         const double Ae =
             mesh.eastWestFaceArea();
@@ -794,9 +978,14 @@ namespace CFD
                     static_cast<std::size_t>(
                         fields.pIndex(i, j));
 
+                // ----------------------------------------------------
+                // Pressure reference
+                // ----------------------------------------------------
+
                 const bool isReference =
-                    (i == nx - 1 &&
-                        j == ny - 1);
+                    !eastBC.hasPressure() &&
+                    i == nx - 1 &&
+                    j == ny - 1;
 
                 if (isReference)
                 {
@@ -804,7 +993,8 @@ namespace CFD
                     cols.push_back(P);
                     values.push_back(1.0);
 
-                    pressureRHS[P] = 0.0;
+                    pressureRHS[P] =
+                        0.0;
 
                     continue;
                 }
@@ -814,58 +1004,74 @@ namespace CFD
                 double aN = 0.0;
                 double aS = 0.0;
 
+                // ----------------------------------------------------
+                // Pressure correction coefficients
+                // ----------------------------------------------------
+
                 if (i < nx - 1)
                 {
                     aE =
-                        rho * Ae *
+                        rho *
+                        Ae *
                         dU[
                             static_cast<std::size_t>(
                                 fields.uIndex(i + 1, j))
-                        ] / dx;
+                        ];
                 }
                 else if (eastBC.hasPressure())
                 {
                     aE =
-                        rho * Ae *
+                        rho *
+                        Ae *
                         dU[
                             static_cast<std::size_t>(
                                 fields.uIndex(nx, j))
-                        ] / dx;
+                        ];
                 }
 
                 if (i > 0)
                 {
                     aW =
-                        rho * Ae *
+                        rho *
+                        Ae *
                         dU[
                             static_cast<std::size_t>(
                                 fields.uIndex(i, j))
-                        ] / dx;
+                        ];
                 }
 
                 if (j < ny - 1)
                 {
                     aN =
-                        rho * An *
+                        rho *
+                        An *
                         dV[
                             static_cast<std::size_t>(
                                 fields.vIndex(i, j + 1))
-                        ] / dy;
+                        ];
                 }
 
                 if (j > 0)
                 {
                     aS =
-                        rho * An *
+                        rho *
+                        An *
                         dV[
                             static_cast<std::size_t>(
                                 fields.vIndex(i, j))
-                        ] / dy;
+                        ];
                 }
 
                 const double aP =
                     safeDiagonal(
-                        aE + aW + aN + aS);
+                        aE +
+                        aW +
+                        aN +
+                        aS);
+
+                // ----------------------------------------------------
+                // Current continuity imbalance
+                // ----------------------------------------------------
 
                 const double continuity =
                     rho * Ae *
@@ -880,6 +1086,10 @@ namespace CFD
                     rho * An *
                     fields.v(i, j);
 
+                // ----------------------------------------------------
+                // Matrix
+                // ----------------------------------------------------
+
                 rows.push_back(P);
                 cols.push_back(P);
                 values.push_back(aP);
@@ -890,10 +1100,7 @@ namespace CFD
                     rows.push_back(P);
                     cols.push_back(
                         static_cast<std::size_t>(
-                            fields.pIndex(
-                                i + 1,
-                                j)));
-
+                            fields.pIndex(i + 1, j)));
                     values.push_back(-aE);
                 }
 
@@ -903,10 +1110,7 @@ namespace CFD
                     rows.push_back(P);
                     cols.push_back(
                         static_cast<std::size_t>(
-                            fields.pIndex(
-                                i - 1,
-                                j)));
-
+                            fields.pIndex(i - 1, j)));
                     values.push_back(-aW);
                 }
 
@@ -916,10 +1120,7 @@ namespace CFD
                     rows.push_back(P);
                     cols.push_back(
                         static_cast<std::size_t>(
-                            fields.pIndex(
-                                i,
-                                j + 1)));
-
+                            fields.pIndex(i, j + 1)));
                     values.push_back(-aN);
                 }
 
@@ -929,10 +1130,7 @@ namespace CFD
                     rows.push_back(P);
                     cols.push_back(
                         static_cast<std::size_t>(
-                            fields.pIndex(
-                                i,
-                                j - 1)));
-
+                            fields.pIndex(i, j - 1)));
                     values.push_back(-aS);
                 }
 
@@ -942,7 +1140,9 @@ namespace CFD
         }
 
         pressureMatrix =
-            SparseMatrix(nP, nP);
+            SparseMatrix(
+                nP,
+                nP);
 
         pressureMatrix.setFromTriplets(
             rows,
@@ -950,6 +1150,10 @@ namespace CFD
             values);
     }
 
+
+    // ================================================================
+    // PRESSURE CORRECTION SOLVE
+    // ================================================================
 
     void StaggeredSIMPLE::solvePressureCorrection()
     {
@@ -961,13 +1165,15 @@ namespace CFD
                 mesh.getNy());
 
         pressureCorrection =
-            Vector(nP, 0.0);
+            Vector(
+                nP,
+                0.0);
 
         BiCGSTAB solver(
             1.0e-8,
             10000);
 
-        BiCGSTABResult result =
+        const BiCGSTABResult result =
             solver.solve(
                 pressureMatrix,
                 pressureRHS,
@@ -983,7 +1189,7 @@ namespace CFD
 
 
     // ================================================================
-    // CORRECTIONS
+    // PRESSURE CORRECTION
     // ================================================================
 
     void StaggeredSIMPLE::correctPressure()
@@ -995,31 +1201,37 @@ namespace CFD
         {
             for (int i = 0; i < nx; ++i)
             {
+                const std::size_t idx =
+                    static_cast<std::size_t>(
+                        fields.pIndex(i, j));
+
                 fields.p(i, j) +=
                     relaxationPressure *
-                    pressureCorrection[
-                        static_cast<std::size_t>(
-                            fields.pIndex(i, j))];
+                    pressureCorrection[idx];
             }
         }
 
-        if (eastBC.hasPressure())
-        {
-            for (int j = 0; j < ny; ++j)
-            {
-                fields.p(nx - 1, j) =
-                    eastBC.getPressure();
-            }
-        }
+        /*
+         * A prescribed outlet pressure is treated as a face pressure
+         * condition in the momentum equation. We therefore do not
+         * overwrite the cell-centred outlet pressure here.
+         */
     }
 
+
+    // ================================================================
+    // VELOCITY CORRECTION
+    // ================================================================
 
     void StaggeredSIMPLE::correctVelocities()
     {
         const int nx = mesh.getNx();
         const int ny = mesh.getNy();
 
-        // Interior U faces
+        // ------------------------------------------------------------
+        // Internal U faces
+        // ------------------------------------------------------------
+
         for (int j = 0; j < ny; ++j)
         {
             for (int i = 1; i < nx; ++i)
@@ -1044,7 +1256,10 @@ namespace CFD
             }
         }
 
-        // Outlet U faces
+        // ------------------------------------------------------------
+        // East outlet U face
+        // ------------------------------------------------------------
+
         if (eastBC.hasPressure())
         {
             for (int j = 0; j < ny; ++j)
@@ -1058,15 +1273,16 @@ namespace CFD
                         static_cast<std::size_t>(
                             fields.pIndex(nx - 1, j))];
 
-                const double pE = 0.0;
-
                 fields.u(nx, j) +=
                     dU[idx] *
-                    (pW - pE);
+                    pW;
             }
         }
 
-        // Interior V faces
+        // ------------------------------------------------------------
+        // Internal V faces
+        // ------------------------------------------------------------
+
         for (int j = 1; j < ny; ++j)
         {
             for (int i = 0; i < nx; ++i)
@@ -1096,7 +1312,75 @@ namespace CFD
 
 
     // ================================================================
-    // RESIDUAL
+    // MOMENTUM RESIDUALS
+    // ================================================================
+
+    void StaggeredSIMPLE::updateMomentumResiduals()
+    {
+        /*
+         * Reassemble using the corrected pressure and velocity fields.
+         *
+         * This measures the algebraic residual of the actual current
+         * SIMPLE iterate rather than simply reporting the residual of
+         * the internal BiCGSTAB solve.
+         */
+
+         // ------------------------------------------------------------
+         // U
+         // ------------------------------------------------------------
+
+        assembleUMomentum();
+
+        Vector u(
+            static_cast<std::size_t>(
+                (mesh.getNx() + 1) *
+                mesh.getNy()),
+            0.0);
+
+        for (std::size_t k = 0;
+            k < u.size();
+            ++k)
+        {
+            u[k] =
+                fields.uData()[k];
+        }
+
+        uMomentumResidual_ =
+            relativeAlgebraicResidual(
+                uMatrix,
+                u,
+                uRHS);
+
+        // ------------------------------------------------------------
+        // V
+        // ------------------------------------------------------------
+
+        assembleVMomentum();
+
+        Vector v(
+            static_cast<std::size_t>(
+                mesh.getNx() *
+                (mesh.getNy() + 1)),
+            0.0);
+
+        for (std::size_t k = 0;
+            k < v.size();
+            ++k)
+        {
+            v[k] =
+                fields.vData()[k];
+        }
+
+        vMomentumResidual_ =
+            relativeAlgebraicResidual(
+                vMatrix,
+                v,
+                vRHS);
+    }
+
+
+    // ================================================================
+    // CONTINUITY RESIDUAL
     // ================================================================
 
     double StaggeredSIMPLE::calculateResidual()
@@ -1110,7 +1394,8 @@ namespace CFD
         const double An =
             mesh.northSouthFaceArea();
 
-        double totalResidual = 0.0;
+        double totalResidual =
+            0.0;
 
         for (int j = 0; j < ny; ++j)
         {
@@ -1138,13 +1423,28 @@ namespace CFD
     }
 
 
+    // ================================================================
+    // CONVERGENCE CHECK
+    // ================================================================
+
     bool StaggeredSIMPLE::checkConvergence()
     {
-        residual =
+        continuityResidual_ =
             calculateResidual();
 
-        return residual <
-            convergenceTolerance;
+        // Legacy residual remains continuity residual.
+        residual =
+            continuityResidual_;
+
+        return
+            continuityResidual_ <
+            convergenceTolerance
+            &&
+            uMomentumResidual_ <
+            momentumTolerance_
+            &&
+            vMomentumResidual_ <
+            momentumTolerance_;
     }
 
 
@@ -1154,22 +1454,42 @@ namespace CFD
 
     void StaggeredSIMPLE::step()
     {
-        if (finished())
+        // ------------------------------------------------------------
+        // Do nothing if already finished
+        // ------------------------------------------------------------
+
+        if (finished_)
+            return;
+
+        // ------------------------------------------------------------
+        // Maximum iteration protection
+        // ------------------------------------------------------------
+
+        if (iteration >= maxIterations)
         {
+            finished_ = true;
             return;
         }
 
+        // ------------------------------------------------------------
+        // Advance iteration counter
+        // ------------------------------------------------------------
+
         ++iteration;
+
+        // ------------------------------------------------------------
+        // SIMPLE algorithm
+        // ------------------------------------------------------------
 
         applyBoundaryConditions();
 
-        // 1. Solve U momentum
+        // 1. Solve U momentum equation
         solveUMomentum();
 
-        // 2. Solve V momentum
+        // 2. Solve V momentum equation
         solveVMomentum();
 
-        // 3. Solve pressure correction
+        // 3. Assemble and solve pressure correction
         solvePressureCorrection();
 
         // 4. Correct pressure
@@ -1178,63 +1498,118 @@ namespace CFD
         // 5. Correct velocities
         correctVelocities();
 
-        // 6. Calculate continuity residual
-        residual =
-            calculateResidual();
+        // 6. Calculate momentum residuals
+        updateMomentumResiduals();
+
+        // 7. Check convergence
+        converged_ =
+            checkConvergence();
+
+        // ------------------------------------------------------------
+        // Console output
+        // ------------------------------------------------------------
 
         std::cout
-            << "SIMPLE iteration "
+            << "Staggered SIMPLE iteration "
             << iteration
-            << " | Residual = "
-            << residual
-            << '\n';
-    }
+            << " | continuity = "
+            << continuityResidual_
+            << " | U momentum = "
+            << uMomentumResidual_
+            << " | V momentum = "
+            << vMomentumResidual_
+            << "\n";
 
+        // ------------------------------------------------------------
+        // Finished conditions
+        // ------------------------------------------------------------
 
-    // ================================================================
-    // FINISHED?
-    // ================================================================
-
-    bool StaggeredSIMPLE::finished() const
-    {
-        return
-            residual < convergenceTolerance ||
-            iteration >= maxIterations;
-    }
-
-
-    // ================================================================
-    // COMPLETE SOLVE
-    // ================================================================
-
-    void StaggeredSIMPLE::solve()
-    {
-        iteration = 0;
-
-        residual =
-            std::numeric_limits<double>::infinity();
-
-        while (!finished())
+        if (converged_)
         {
-            step();
-        }
+            finished_ =
+                true;
 
-        if (residual <
-            convergenceTolerance)
-        {
             std::cout
                 << "\nStaggered SIMPLE converged after "
                 << iteration
                 << " iterations.\n";
         }
-        else
+        else if (iteration >= maxIterations)
         {
+            finished_ =
+                true;
+
             std::cout
                 << "\nStaggered SIMPLE reached maximum iterations.\n"
-                << "Final residual = "
-                << residual
-                << '\n';
+                << "Final continuity residual = "
+                << continuityResidual_
+                << "\n"
+                << "Final U-momentum residual = "
+                << uMomentumResidual_
+                << "\n"
+                << "Final V-momentum residual = "
+                << vMomentumResidual_
+                << "\n";
         }
     }
+
+
+    // ================================================================
+    // FINISHED
+    // ================================================================
+
+    bool StaggeredSIMPLE::finished() const
+    {
+        return finished_;
+    }
+
+
+    // ================================================================
+    // CONVERGED
+    // ================================================================
+
+    bool StaggeredSIMPLE::converged() const
+    {
+        return converged_;
+    }
+
+
+    // ================================================================
+    // FULL SOLVE
+    // ================================================================
+
+    void StaggeredSIMPLE::solve()
+    {
+        /*
+         * Reset the iterative state so solve() can be called on a
+         * newly initialised solver.
+         */
+
+        iteration = 0;
+
+        converged_ =
+            false;
+
+        finished_ =
+            false;
+
+        residual =
+            std::numeric_limits<double>::infinity();
+
+        continuityResidual_ =
+            std::numeric_limits<double>::infinity();
+
+        uMomentumResidual_ =
+            std::numeric_limits<double>::infinity();
+
+        vMomentumResidual_ =
+            std::numeric_limits<double>::infinity();
+
+        while (!finished_)
+        {
+            step();
+        }
+    }
+    
 
 }
