@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <functional>
 
 namespace CFD::UI {
 
@@ -261,6 +262,10 @@ namespace CFD::UI {
         bool showGrid_ = true;
         bool showColormap_ = true;
 
+        // Navier-Stokes overlays
+        bool showVelocityVectors_ = false;
+        bool showStreamlines_ = false;
+
         // ------------------------------------------------------------
         // Current displayed scalar
         // ------------------------------------------------------------
@@ -312,6 +317,16 @@ namespace CFD::UI {
         float objMaxY_ = 1.0f;
 
         bool objBBoxDirty_ = true;
+
+        void drawVelocityVectors(
+            ImDrawList* drawList,
+            ImVec2 canvasPos,
+            const std::function<ImVec2(double, double)>& toScreen);
+
+        void drawStreamlines(
+            ImDrawList* drawList,
+            ImVec2 canvasPos,
+            const std::function<ImVec2(double, double)>& toScreen);
     };
 
 }

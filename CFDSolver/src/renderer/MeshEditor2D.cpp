@@ -496,7 +496,572 @@ namespace CFD::UI {
     // ================================================================
     // MAIN VIEWPORT
     // ================================================================
+    void MeshEditor2D::drawVelocityVectors(
+        ImDrawList* drawList,
+        ImVec2 canvasPos,
+        const std::function<ImVec2(double, double)>& toScreen)
+    {
+        if (animFrames_.empty())
+            return;
 
+        if (animFrame_ < 0 ||
+            animFrame_ >=
+            static_cast<int>(animFrames_.size()))
+            return;
+
+        const AnimFrame& frame =
+            animFrames_[animFrame_];
+
+        if (!frame.navierStokes)
+            return;
+
+        const int nx = mesh_.nx;
+        const int ny = mesh_.ny;
+
+        if (nx <= 0 || ny <= 0)
+            return;
+
+        const double dx =
+            domain_.width() /
+            static_cast<double>(nx);
+
+        const double dy =
+            domain_.height() /
+            static_cast<double>(ny);
+
+        const double minDimension =
+            std::min(dx, dy);
+
+        /*
+            Scale the arrows relative to the cell size.
+
+            This is deliberately independent of the velocity
+            magnitude range so that the arrows remain visible
+            even when the flow contains small velocities.
+        */
+        const double vectorScale =
+            0.35 * minDimension;
+
+        const double maxArrowLength =
+            0.45 * minDimension;
+
+        const double minArrowLength =
+            0.02 * minDimension;
+
+        for (int j = 0; j < ny; ++j)
+        {
+            for (int i = 0; i < nx; ++i)
+            {
+                const std::size_t index =
+                    static_cast<std::size_t>(
+                        j * nx + i);
+
+                if (index >= frame.velocityU.size() ||
+                    index >= frame.velocityV.size())
+                {
+                    continue;
+                }
+
+                const double u =
+                    frame.velocityU[index];
+
+                const double v =
+                    frame.velocityV[index];
+
+                const double magnitude =
+                    std::sqrt(
+                        u * u +
+                        v * v);
+
+                if (magnitude < 1.0e-12)
+                    continue;
+
+                /*
+                    Cell centre.
+                */
+                const double x =
+                    domain_.x0 +
+                    (static_cast<double>(i) + 0.5) * dx;
+
+                const double y =
+                    domain_.y0 +
+                    (static_cast<double>(j) + 0.5) * dy;
+
+                double arrowLength =
+                    magnitude * vectorScale;
+
+                arrowLength =
+                    std::clamp(
+                        arrowLength,
+                        minArrowLength,
+                        maxArrowLength);
+
+                const double invMagnitude =
+                    1.0 / magnitude;
+
+                const double dirX =
+                    u * invMagnitude;
+
+                const double dirY =
+                    v * invMagnitude;
+
+                const double endX =
+                    x + dirX * arrowLength;
+
+                const double endY =
+                    y + dirY * arrowLength;
+
+                const ImVec2 start =
+                    toScreen(x, y);
+
+                const ImVec2 end =
+                    toScreen(endX, endY);
+
+                drawList->AddLine(
+                    start,
+                    end,
+                    IM_COL32(
+                        255,
+                        255,
+                        255,
+                        230),
+                    1.5f);
+
+                /*
+                    Arrow head.
+                */
+                const double headLength =
+                    std::min(
+                        arrowLength * 0.30,
+                        minDimension * 0.12);
+
+                const double headAngle =
+                    0.5;
+
+                const double cosA =
+                    std::cos(headAngle);
+
+                const double sinA =
+                    std::sin(headAngle);
+
+                const double backX =
+                    -dirX * cosA -
+                    -dirY * sinA;
+
+                const double backY =
+                    -dirX * sinA +
+                    -dirY * cosA;
+
+                const double backX2 =
+                    -dirX * cosA +
+                    -dirY * sinA;
+
+                const double backY2 =
+                    dirX * sinA +
+                    -dirY * cosA;
+
+                const ImVec2 head1 =
+                    toScreen(
+                        endX + backX * headLength,
+                        endY + backY * headLength);
+
+                const ImVec2 head2 =
+                    toScreen(
+                        endX + backX2 * headLength,
+                        endY + backY2 * headLength);
+
+                drawList->AddLine(
+                    end,
+                    head1,
+                    IM_COL32(
+                        255,
+                        255,
+                        255,
+                        230),
+                    1.5f);
+
+                drawList->AddLine(
+                    end,
+                    head2,
+                    IM_COL32(
+                        255,
+                        255,
+                        255,
+                        230),
+                    1.5f);
+            }
+        }
+    }
+    void MeshEditor2D::drawStreamlines(
+        ImDrawList* drawList,
+        ImVec2 canvasPos,
+        const std::function<ImVec2(double, double)>& toScreen)
+    {
+        if (animFrames_.empty())
+            return;
+
+        if (animFrame_ < 0 ||
+            animFrame_ >=
+            static_cast<int>(animFrames_.size()))
+            return;
+
+        const AnimFrame& frame =
+            animFrames_[animFrame_];
+
+        if (!frame.navierStokes)
+            return;
+
+        const int nx = mesh_.nx;
+        const int ny = mesh_.ny;
+
+        if (nx <= 0 || ny <= 0)
+            return;
+
+        if (frame.velocityU.size() <
+            static_cast<std::size_t>(nx * ny))
+            return;
+
+        if (frame.velocityV.size() <
+            static_cast<std::size_t>(nx * ny))
+            return;
+
+        const double dx =
+            domain_.width() /
+            static_cast<double>(nx);
+
+        const double dy =
+            domain_.height() /
+            static_cast<double>(ny);
+
+        if (dx <= 0.0 || dy <= 0.0)
+            return;
+
+        /*
+            Bilinear interpolation of the cell-centred velocity field.
+        */
+        auto sampleVelocity =
+            [&](double x,
+                double y,
+                double& u,
+                double& v) -> bool
+            {
+                if (x < domain_.x0 ||
+                    x > domain_.x1 ||
+                    y < domain_.y0 ||
+                    y > domain_.y1)
+                {
+                    return false;
+                }
+
+                double fx =
+                    (x - domain_.x0) / dx - 0.5;
+
+                double fy =
+                    (y - domain_.y0) / dy - 0.5;
+
+                int i0 =
+                    static_cast<int>(
+                        std::floor(fx));
+
+                int j0 =
+                    static_cast<int>(
+                        std::floor(fy));
+
+                double tx =
+                    fx - static_cast<double>(i0);
+
+                double ty =
+                    fy - static_cast<double>(j0);
+
+                /*
+                    Clamp to the valid cell range.
+
+                    At the boundaries this effectively reduces
+                    interpolation to the nearest available cells.
+                */
+                i0 =
+                    std::clamp(
+                        i0,
+                        0,
+                        nx - 1);
+
+                j0 =
+                    std::clamp(
+                        j0,
+                        0,
+                        ny - 1);
+
+                const int i1 =
+                    std::min(
+                        i0 + 1,
+                        nx - 1);
+
+                const int j1 =
+                    std::min(
+                        j0 + 1,
+                        ny - 1);
+
+                if (i0 == i1)
+                    tx = 0.0;
+
+                if (j0 == j1)
+                    ty = 0.0;
+
+                auto velocityAt =
+                    [&](int i,
+                        int j,
+                        double& uu,
+                        double& vv)
+                    {
+                        const std::size_t index =
+                            static_cast<std::size_t>(
+                                j * nx + i);
+
+                        uu =
+                            frame.velocityU[index];
+
+                        vv =
+                            frame.velocityV[index];
+                    };
+
+                double u00, v00;
+                double u10, v10;
+                double u01, v01;
+                double u11, v11;
+
+                velocityAt(
+                    i0,
+                    j0,
+                    u00,
+                    v00);
+
+                velocityAt(
+                    i1,
+                    j0,
+                    u10,
+                    v10);
+
+                velocityAt(
+                    i0,
+                    j1,
+                    u01,
+                    v01);
+
+                velocityAt(
+                    i1,
+                    j1,
+                    u11,
+                    v11);
+
+                const double u0 =
+                    u00 * (1.0 - tx) +
+                    u10 * tx;
+
+                const double u1 =
+                    u01 * (1.0 - tx) +
+                    u11 * tx;
+
+                const double v0 =
+                    v00 * (1.0 - tx) +
+                    v10 * tx;
+
+                const double v1 =
+                    v01 * (1.0 - tx) +
+                    v11 * tx;
+
+                u =
+                    u0 * (1.0 - ty) +
+                    u1 * ty;
+
+                v =
+                    v0 * (1.0 - ty) +
+                    v1 * ty;
+
+                return true;
+            };
+
+        /*
+            Streamline integration.
+
+            A relatively small step keeps the lines smooth while
+            remaining inexpensive for your current 2D solver.
+        */
+        const double stepSize =
+            0.20 *
+            std::min(dx, dy);
+
+        const int maxSteps = 500;
+
+        /*
+            Seeds are placed throughout the domain.
+
+            More seeds horizontally than vertically gives good
+            coverage without making the viewport too cluttered.
+        */
+        const int seedNX =
+            std::clamp(
+                nx / 2,
+                8,
+                20);
+
+        const int seedNY =
+            std::clamp(
+                ny / 2,
+                8,
+                20);
+
+        auto integrate =
+            [&](double startX,
+                double startY,
+                double direction)
+            {
+                double x = startX;
+                double y = startY;
+
+                ImVec2 previous =
+                    toScreen(x, y);
+
+                for (int step = 0;
+                    step < maxSteps;
+                    ++step)
+                {
+                    double u1;
+                    double v1;
+
+                    if (!sampleVelocity(
+                        x,
+                        y,
+                        u1,
+                        v1))
+                    {
+                        break;
+                    }
+
+                    u1 *= direction;
+                    v1 *= direction;
+
+                    const double speed1 =
+                        std::sqrt(
+                            u1 * u1 +
+                            v1 * v1);
+
+                    if (speed1 < 1.0e-10)
+                        break;
+
+                    /*
+                        RK2 midpoint step.
+                    */
+                    const double midX =
+                        x +
+                        0.5 *
+                        stepSize *
+                        u1 /
+                        speed1;
+
+                    const double midY =
+                        y +
+                        0.5 *
+                        stepSize *
+                        v1 /
+                        speed1;
+
+                    double u2;
+                    double v2;
+
+                    if (!sampleVelocity(
+                        midX,
+                        midY,
+                        u2,
+                        v2))
+                    {
+                        break;
+                    }
+
+                    u2 *= direction;
+                    v2 *= direction;
+
+                    const double speed2 =
+                        std::sqrt(
+                            u2 * u2 +
+                            v2 * v2);
+
+                    if (speed2 < 1.0e-10)
+                        break;
+
+                    x +=
+                        stepSize *
+                        u2 /
+                        speed2;
+
+                    y +=
+                        stepSize *
+                        v2 /
+                        speed2;
+
+                    if (x < domain_.x0 ||
+                        x > domain_.x1 ||
+                        y < domain_.y0 ||
+                        y > domain_.y1)
+                    {
+                        break;
+                    }
+
+                    const ImVec2 current =
+                        toScreen(x, y);
+
+                    drawList->AddLine(
+                        previous,
+                        current,
+                        IM_COL32(
+                            255,
+                            220,
+                            80,
+                            210),
+                        1.5f);
+
+                    previous = current;
+                }
+            };
+
+        /*
+            Seed streamlines throughout the domain.
+
+            We integrate both forward and backward from each seed.
+            This makes the seed distribution much more useful for
+            recirculating flows such as the lid-driven cavity.
+        */
+        for (int sy = 0;
+            sy < seedNY;
+            ++sy)
+        {
+            const double y =
+                domain_.y0 +
+                (static_cast<double>(sy) + 0.5) /
+                static_cast<double>(seedNY) *
+                domain_.height();
+
+            for (int sx = 0;
+                sx < seedNX;
+                ++sx)
+            {
+                const double x =
+                    domain_.x0 +
+                    (static_cast<double>(sx) + 0.5) /
+                    static_cast<double>(seedNX) *
+                    domain_.width();
+
+                integrate(
+                    x,
+                    y,
+                    1.0);
+
+                integrate(
+                    x,
+                    y,
+                    -1.0);
+            }
+        }
+    }
     void MeshEditor2D::drawViewport()
     {
         if (!showViewportWindow_)
@@ -660,6 +1225,34 @@ namespace CFD::UI {
             ImGui::Checkbox(
                 "Show Colormap",
                 &showColormap_);
+
+            // ------------------------------------------------------------
+            // Navier-Stokes overlays
+            // ------------------------------------------------------------
+
+            if (!hasMesh() && !animFrames_.empty())
+            {
+                const bool hasNavierStokes =
+                    animFrame_ >= 0 &&
+                    animFrame_ <
+                    static_cast<int>(animFrames_.size()) &&
+                    animFrames_[animFrame_].navierStokes;
+
+                if (hasNavierStokes)
+                {
+                    ImGui::Separator();
+
+                    ImGui::Text("Flow Visualisation");
+
+                    ImGui::Checkbox(
+                        "Show Velocity Vectors",
+                        &showVelocityVectors_);
+
+                    ImGui::Checkbox(
+                        "Show Streamlines",
+                        &showStreamlines_);
+                }
+            }
 
             ImGui::Separator();
 
@@ -1408,7 +2001,33 @@ namespace CFD::UI {
                             255));
                 }
             }
+            // --------------------------------------------------------
+            // Navier-Stokes velocity overlays
+            // --------------------------------------------------------
 
+            if (domainReady_ &&
+                !animFrames_.empty() &&
+                animFrame_ >= 0 &&
+                animFrame_ <
+                static_cast<int>(animFrames_.size()) &&
+                animFrames_[animFrame_].navierStokes)
+            {
+                if (showStreamlines_)
+                {
+                    drawStreamlines(
+                        drawList,
+                        canvasPos,
+                        toScreen);
+                }
+
+                if (showVelocityVectors_)
+                {
+                    drawVelocityVectors(
+                        drawList,
+                        canvasPos,
+                        toScreen);
+                }
+            }
             // --------------------------------------------------------
             // Hover information
             // --------------------------------------------------------
