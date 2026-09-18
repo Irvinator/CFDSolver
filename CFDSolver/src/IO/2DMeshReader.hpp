@@ -27,7 +27,8 @@ public:
 
         const float dx = static_cast<float>(inputMesh.getDx());
         const float dy = static_cast<float>(inputMesh.getDy());
-//Vertices
+        //Vertices
+
         for (int j = 0; j <= ny; ++j)
         {
             for (int i = 0; i <= nx; ++i)
@@ -39,7 +40,8 @@ public:
                     });
             }
         }
-//Faces (Quads)
+        //Faces (Quads)
+
         for (int j = 0; j < ny; ++j)
         {
             for (int i = 0; i < nx; ++i)
