@@ -6,9 +6,6 @@
  *  - Heat Diffusion 2D
  *  - Navier-Stokes 2D using StaggeredSIMPLE
  *
- * Responsive fullscreen-friendly layout with material presets,
- * per-side thermal BCs, and auto simulation modes.
- *
  * Navier-Stokes boundary types:
  *  - Stationary Wall
  *  - Moving Wall
@@ -104,18 +101,6 @@ struct PendingFrame
 };
 
 
-enum class SimMode {
-    MaterialComparison = 0,
-    Transient = 1,
-    NearSteady = 2,
-    Manual = 3
-};
-
-struct MaterialPreset {
-    const char* name;
-    float alpha;
-};
-
 // ================================================================
 // GLOBAL SOLVER STATE
 // ================================================================
@@ -165,11 +150,9 @@ static void heatSolverThread(
             width,
             height);
 
-        const double dx = width / static_cast<double>(meshNx);
-        const double dy = height / static_cast<double>(meshNy);
-        const double dMin = std::min(dx, dy);
-        const double Fo_target = 5.0;
-        const double dt = Fo_target * dMin * dMin / alpha;
+        const double dx =
+            width /
+            static_cast<double>(meshNx);
 
         const double dy =
             height /
@@ -205,24 +188,24 @@ static void heatSolverThread(
             tEnd);
 
         CFD::HeatSolver2D::BoundaryConditions bcs;
-        bcs.T_west = T_west;
-        bcs.T_east = T_east;
-        bcs.T_south = T_south;
-        bcs.T_north = T_north;
 
-        const double icMean = 0.25 * (T_west + T_east + T_south + T_north);
+        bcs.T_west = T_hot;
+        bcs.T_east = T_cold;
+        bcs.T_south = T_cold;
+        bcs.T_north = T_cold;
 
         solver.setBCs(bcs);
-        solver.setIC(icMean);
-        solver.setOutputFreq(1);
+
+        solver.setIC(T_cold);
+
+        solver.setOutputFreq(50);
+
         solver.enableSteadyStop(true);
 
         solver.setSteadyTolerance(
             1.0e-6);
 
-        const int safeFrameCount = std::max(2, targetFrames);
-        const double frameDt = tEnd / static_cast<double>(safeFrameCount - 1);
-        double nextFrameTime = 0.0;
+        const int targetFrames = 50;
 
         const int estimatedSteps =
             static_cast<int>(
@@ -248,43 +231,72 @@ static void heatSolverThread(
         };
 
         std::vector<RawFrame> rawFrames;
-        rawFrames.reserve(static_cast<std::size_t>(safeFrameCount + 4));
 
         rawFrames.reserve(
             targetFrames + 4);
 
-        auto recordFrame = [&](double timeValue) {
-            const CFD::ScalarField& T = solver.T();
-            RawFrame rf;
-            rf.values.resize(T.size());
-            for (std::size_t k = 0; k < T.size(); ++k) {
-                rf.values[k] = T[k];
-                globalMin = std::min(globalMin, T[k]);
-                globalMax = std::max(globalMax, T[k]);
-            }
-            rf.time = timeValue;
-            rawFrames.push_back(std::move(rf));
-            };
+        double globalMin =
+            1e30;
 
-        recordFrame(0.0);
-        nextFrameTime += frameDt;
+        double globalMax =
+            -1e30;
 
-        while (!solver.finished() && g_solverRunning) {
-            solver.step(cg, cgIters);
+        while (
+            !solver.finished() &&
+            g_solverRunning)
+        {
+            solver.step(
+                cg,
+                cgIters);
 
-            while (solver.time() + 1.0e-12 >= nextFrameTime &&
-                static_cast<int>(rawFrames.size()) < safeFrameCount)
+            if (
+                solver.steps() %
+                recordEvery == 0 ||
+                solver.steps() == 1)
             {
-                recordFrame(solver.time());
-                nextFrameTime += frameDt;
+                const CFD::ScalarField& T =
+                    solver.T();
+
+                RawFrame rf;
+
+                rf.values.resize(
+                    T.size());
+
+                for (
+                    std::size_t k = 0;
+                    k < T.size();
+                    ++k)
+                {
+                    rf.values[k] =
+                        T[k];
+
+                    globalMin =
+                        std::min(
+                            globalMin,
+                            T[k]);
+
+                    globalMax =
+                        std::max(
+                            globalMax,
+                            T[k]);
+                }
+
+                rf.time =
+                    solver.time();
+
+                rawFrames.push_back(
+                    std::move(rf));
             }
 
-            g_solverProgress = static_cast<float>(
-                std::min(solver.time() / std::max(tEnd, 1.0e-12), 1.0));
-        }
-
-        if (rawFrames.empty() || rawFrames.back().time < solver.time()) {
-            recordFrame(solver.time());
+            if (tEnd > 0.0)
+            {
+                g_solverProgress =
+                    static_cast<float>(
+                        std::min(
+                            solver.time() /
+                            tEnd,
+                            1.0));
+            }
         }
 
         if (globalMax <= globalMin)
@@ -1123,39 +1135,10 @@ static void navierStokesSolverThread(
 
 int main()
 {
-    CFD::Window window(1280, 720, "CFD Solver");
-    if (!window.init()) {
-        std::cerr << "Failed to init!\n";
-        return -1;
-    }
-
-    if (NFD_Init() != NFD_OKAY) {
-        std::cerr << "NFD init failed: " << NFD_GetError() << '\n';
-        window.cleanup();
-        return -1;
-    }
-
-    static const MaterialPreset materials[] = {
-        { "Custom",     1.0e-4f },
-        { "Air",        2.1e-5f },
-        { "Water",      1.4e-7f },
-        { "Steel",      1.2e-5f },
-        { "Aluminium",  8.4e-5f },
-        { "Copper",     1.11e-4f }
-    };
-
-    int materialIndex = 0;
-    float alpha = materials[materialIndex].alpha;
-
-    float T_west = 1.0f;
-    float T_east = 0.0f;
-    float T_south = 0.0f;
-    float T_north = 0.0f;
-
-    int simModeIndex = 0; // Material Comparison
-    float manualEndTime = 10.0f;
-    int manualFrames = 50;
-    bool loopAnimation = false;
+    CFD::Window window(
+        1280,
+        720,
+        "CFD Solver");
 
     CFD::OBJMesh loadedMesh;
 
@@ -1460,17 +1443,57 @@ int main()
 
         window.renderAbout();
 
-        const float W = static_cast<float>(window.width());
-        const float H = static_cast<float>(window.height());
-        const float menuBarH = ImGui::GetFrameHeight();
-        const float leftToolbarW = 55.0f;
-        const float rightPanelW = 330.0f;
-        const float bottomTimelineH = 60.0f;
-        const float topY = menuBarH;
-        const float mainH = H - topY;
-        const float centerX = leftToolbarW;
-        const float centerW = std::max(200.0f, W - leftToolbarW - rightPanelW);
-        const float centerH = std::max(200.0f, mainH - bottomTimelineH);
+
+        // ========================================================
+        // LAYOUT
+        // ========================================================
+
+        const float W =
+            static_cast<float>(
+                window.width());
+
+        const float H =
+            static_cast<float>(
+                window.height());
+
+        const float menuBarH =
+            ImGui::GetFrameHeight();
+
+        const float leftToolbarW =
+            55.0f;
+
+        const float rightPanelW =
+            300.0f;
+
+        const float bottomTimelineH =
+            60.0f;
+
+        const float topY =
+            menuBarH;
+
+        const float mainH =
+            H - topY;
+
+        const float centerX =
+            leftToolbarW;
+
+        const float centerW =
+            std::max(
+                200.0f,
+                W -
+                leftToolbarW -
+                rightPanelW);
+
+        const float centerH =
+            std::max(
+                200.0f,
+                mainH -
+                bottomTimelineH);
+
+
+        // ========================================================
+        // MESH EDITOR
+        // ========================================================
 
         meshEditor.drawUI();
 
@@ -1609,64 +1632,381 @@ int main()
         ImGui::Text("Output");
 
         ImGui::Separator();
-        const char* materialNames[] = { "Custom", "Air", "Water", "Steel", "Aluminium", "Copper" };
-        static const float materialAlpha[] = { 1.0e-4f, 2.1e-5f, 1.4e-7f, 1.2e-5f, 8.4e-5f, 1.11e-4f };
 
-        if (ImGui::Combo("##material", &materialIndex, materialNames, IM_ARRAYSIZE(materialNames))) {
-            if (materialIndex != 0) {
-                alpha = materialAlpha[materialIndex];
+        if (physType == 0)
+        {
+            const char* heatOutputs[] =
+            {
+                "Temperature (T)"
+            };
+
+            int outputIndex = 0;
+
+            ImGui::Combo(
+                "##output_heat",
+                &outputIndex,
+                heatOutputs,
+                IM_ARRAYSIZE(heatOutputs));
+
+            meshEditor.setOutputField(
+                CFD::UI::OutputField::Temperature);
+        }
+        else
+        {
+            const char* nsOutputs[] =
+            {
+                "Pressure (P)",
+                "Velocity U",
+                "Velocity V",
+                "Velocity Magnitude"
+            };
+
+            ImGui::Combo(
+                "##output_ns",
+                &nsOutputIndex,
+                nsOutputs,
+                IM_ARRAYSIZE(nsOutputs));
+
+            switch (nsOutputIndex)
+            {
+            case 0:
+                meshEditor.setOutputField(
+                    CFD::UI::OutputField::Pressure);
+                break;
+
+            case 1:
+                meshEditor.setOutputField(
+                    CFD::UI::OutputField::VelocityU);
+                break;
+
+            case 2:
+                meshEditor.setOutputField(
+                    CFD::UI::OutputField::VelocityV);
+                break;
+
+            case 3:
+                meshEditor.setOutputField(
+                    CFD::UI::OutputField::VelocityMagnitude);
+                break;
             }
         }
-        ImGui::SameLine();
-        ImGui::Text("Material");
 
-        ImGui::BeginDisabled(materialIndex != 0);
-        ImGui::InputFloat("Alpha [m2/s]", &alpha, 0, 0, "%.2e");
-        ImGui::EndDisabled();
 
         ImGui::Spacing();
-        ImGui::Text("Boundary Conditions");
-        ImGui::Separator();
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.4f, 0.1f, 0.1f, 1.0f });
-        ImGui::InputFloat("##west", &T_west, 0.1f, 1.0f, "%.2f");
-        ImGui::PopStyleColor();
-        ImGui::SameLine(); ImGui::Text("T west [K]");
 
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.1f, 0.2f, 0.4f, 1.0f });
-        ImGui::InputFloat("##east", &T_east, 0.1f, 1.0f, "%.2f");
-        ImGui::PopStyleColor();
-        ImGui::SameLine(); ImGui::Text("T east [K]");
 
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.1f, 0.2f, 0.4f, 1.0f });
-        ImGui::InputFloat("##south", &T_south, 0.1f, 1.0f, "%.2f");
-        ImGui::PopStyleColor();
-        ImGui::SameLine(); ImGui::Text("T south [K]");
+        // ========================================================
+        // HEAT SETTINGS
+        // ========================================================
 
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0.1f, 0.2f, 0.4f, 1.0f });
-        ImGui::InputFloat("##north", &T_north, 0.1f, 1.0f, "%.2f");
-        ImGui::PopStyleColor();
-        ImGui::SameLine(); ImGui::Text("T north [K]");
+        if (physType == 0)
+        {
+            ImGui::Text("Material");
 
-        ImGui::Spacing();
-        ImGui::Text("Simulation");
-        ImGui::Separator();
-        const char* simModes[] = { "Material Comparison", "Transient", "Near Steady", "Manual" };
-        ImGui::Combo("##sim_mode", &simModeIndex, simModes, IM_ARRAYSIZE(simModes));
-        ImGui::SameLine();
-        ImGui::Text("Mode");
+            ImGui::Separator();
 
-        if (simModeIndex == static_cast<int>(SimMode::Manual)) {
-            ImGui::InputFloat("End Time [s]", &manualEndTime, 0.1f, 1.0f, "%.3f");
-            ImGui::SliderInt("Frames", &manualFrames, 2, 120);
-            ImGui::Checkbox("Loop Animation", &loopAnimation);
+            ImGui::InputFloat(
+                "Alpha [m2/s]",
+                &alpha,
+                0,
+                0,
+                "%.2e");
+
+            ImGui::Spacing();
+
+            ImGui::Text(
+                "Boundary Conditions");
+
+            ImGui::Separator();
+
+            ImGui::PushStyleColor(
+                ImGuiCol_FrameBg,
+                { 0.4f, 0.1f, 0.1f, 1.0f });
+
+            ImGui::InputFloat(
+                "T hot [K]",
+                &T_hot,
+                0.1f,
+                1.0f,
+                "%.2f");
+
+            ImGui::PopStyleColor();
+
+            ImGui::PushStyleColor(
+                ImGuiCol_FrameBg,
+                { 0.1f, 0.2f, 0.4f, 1.0f });
+
+            ImGui::InputFloat(
+                "T cold [K]",
+                &T_cold,
+                0.1f,
+                1.0f,
+                "%.2f");
+
+            ImGui::PopStyleColor();
         }
-        else {
-            ImGui::BeginDisabled();
-            ImGui::InputFloat("End Time [s]", &manualEndTime, 0.1f, 1.0f, "%.3f");
-            ImGui::SliderInt("Frames", &manualFrames, 2, 120);
-            ImGui::Checkbox("Loop Animation", &loopAnimation);
-            ImGui::EndDisabled();
+
+
+        // ========================================================
+        // NAVIER-STOKES SETTINGS
+        // ========================================================
+
+        else if (physType == 1)
+        {
+            ImGui::Text("Fluid");
+
+            ImGui::Separator();
+
+            ImGui::InputFloat(
+                "Density [kg/m3]",
+                &rho,
+                0.1f,
+                1.0f,
+                "%.3f");
+
+            ImGui::InputFloat(
+                "Viscosity [Pa.s]",
+                &mu,
+                0.001f,
+                0.01f,
+                "%.4f");
+
+            ImGui::Spacing();
+
+            ImGui::Text(
+                "Boundary Conditions");
+
+            ImGui::Separator();
+
+            const char* boundaryTypes[] =
+            {
+                "Stationary Wall",
+                "Moving Wall",
+                "Inlet",
+                "Outlet"
+            };
+
+
+            // ========================================================
+            // NORTH
+            // ========================================================
+
+            ImGui::Text("North");
+
+            ImGui::Combo(
+                "Type##north",
+                &northTypeIndex,
+                boundaryTypes,
+                IM_ARRAYSIZE(boundaryTypes));
+
+            if (northTypeIndex == 3)
+            {
+                ImGui::InputFloat(
+                    "Pressure [Pa]##north",
+                    &northPressure,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+            }
+            else if (
+                northTypeIndex == 1 ||
+                northTypeIndex == 2)
+            {
+                ImGui::InputFloat(
+                    "U [m/s]##north",
+                    &northU,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+
+                ImGui::InputFloat(
+                    "V [m/s]##north",
+                    &northV,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+            }
+            else
+            {
+                northU = 0.0f;
+                northV = 0.0f;
+
+                ImGui::TextDisabled(
+                    "U = 0.000 m/s");
+
+                ImGui::TextDisabled(
+                    "V = 0.000 m/s");
+            }
+
+            ImGui::Spacing();
+
+
+            // ========================================================
+            // SOUTH
+            // ========================================================
+
+            ImGui::Text("South");
+
+            ImGui::Combo(
+                "Type##south",
+                &southTypeIndex,
+                boundaryTypes,
+                IM_ARRAYSIZE(boundaryTypes));
+
+            if (southTypeIndex == 3)
+            {
+                ImGui::InputFloat(
+                    "Pressure [Pa]##south",
+                    &southPressure,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+            }
+            else if (
+                southTypeIndex == 1 ||
+                southTypeIndex == 2)
+            {
+                ImGui::InputFloat(
+                    "U [m/s]##south",
+                    &southU,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+
+                ImGui::InputFloat(
+                    "V [m/s]##south",
+                    &southV,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+            }
+            else
+            {
+                southU = 0.0f;
+                southV = 0.0f;
+
+                ImGui::TextDisabled(
+                    "U = 0.000 m/s");
+
+                ImGui::TextDisabled(
+                    "V = 0.000 m/s");
+            }
+
+            ImGui::Spacing();
+
+
+            // ========================================================
+            // EAST
+            // ========================================================
+
+            ImGui::Text("East");
+
+            ImGui::Combo(
+                "Type##east",
+                &eastTypeIndex,
+                boundaryTypes,
+                IM_ARRAYSIZE(boundaryTypes));
+
+            if (eastTypeIndex == 3)
+            {
+                ImGui::InputFloat(
+                    "Pressure [Pa]##east",
+                    &eastPressure,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+            }
+            else if (
+                eastTypeIndex == 1 ||
+                eastTypeIndex == 2)
+            {
+                ImGui::InputFloat(
+                    "U [m/s]##east",
+                    &eastU,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+
+                ImGui::InputFloat(
+                    "V [m/s]##east",
+                    &eastV,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+            }
+            else
+            {
+                eastU = 0.0f;
+                eastV = 0.0f;
+
+                ImGui::TextDisabled(
+                    "U = 0.000 m/s");
+
+                ImGui::TextDisabled(
+                    "V = 0.000 m/s");
+            }
+
+            ImGui::Spacing();
+
+
+            // ========================================================
+            // WEST
+            // ========================================================
+
+            ImGui::Text("West");
+
+            ImGui::Combo(
+                "Type##west",
+                &westTypeIndex,
+                boundaryTypes,
+                IM_ARRAYSIZE(boundaryTypes));
+
+            if (westTypeIndex == 3)
+            {
+                ImGui::InputFloat(
+                    "Pressure [Pa]##west",
+                    &westPressure,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+            }
+            else if (
+                westTypeIndex == 1 ||
+                westTypeIndex == 2)
+            {
+                ImGui::InputFloat(
+                    "U [m/s]##west",
+                    &westU,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+
+                ImGui::InputFloat(
+                    "V [m/s]##west",
+                    &westV,
+                    0.1f,
+                    1.0f,
+                    "%.3f");
+            }
+            else
+            {
+                westU = 0.0f;
+                westV = 0.0f;
+
+                ImGui::TextDisabled(
+                    "U = 0.000 m/s");
+
+                ImGui::TextDisabled(
+                    "V = 0.000 m/s");
+            }
+
+            ImGui::Spacing();
         }
+
+
+        // ========================================================
+        // RUN / STOP
+        // ========================================================
 
         ImGui::Spacing();
 
@@ -1749,6 +2089,16 @@ int main()
                         CFD::BoundaryType eastType;
                         CFD::BoundaryType westType;
 
+
+                        // ------------------------------------------------
+                        // NORTH
+                        //
+                        // 0 = stationary wall
+                        // 1 = moving wall
+                        // 2 = inlet
+                        // 3 = outlet
+                        // ------------------------------------------------
+
                         switch (northTypeIndex)
                         {
                         case 0:
@@ -1772,6 +2122,11 @@ int main()
                                 CFD::BoundaryType::Wall;
                             break;
                         }
+
+
+                        // ------------------------------------------------
+                        // SOUTH
+                        // ------------------------------------------------
 
                         switch (southTypeIndex)
                         {
@@ -1797,6 +2152,11 @@ int main()
                             break;
                         }
 
+
+                        // ------------------------------------------------
+                        // EAST
+                        // ------------------------------------------------
+
                         switch (eastTypeIndex)
                         {
                         case 0:
@@ -1820,6 +2180,11 @@ int main()
                                 CFD::BoundaryType::Wall;
                             break;
                         }
+
+
+                        // ------------------------------------------------
+                        // WEST
+                        // ------------------------------------------------
 
                         switch (westTypeIndex)
                         {
@@ -1845,6 +2210,11 @@ int main()
                             break;
                         }
 
+
+                        // ------------------------------------------------
+                        // Stationary wall safety
+                        // ------------------------------------------------
+
                         if (northTypeIndex == 0)
                         {
                             northU = 0.0f;
@@ -1869,6 +2239,11 @@ int main()
                             westV = 0.0f;
                         }
 
+
+                        // ------------------------------------------------
+                        // Output field
+                        // ------------------------------------------------
+
                         switch (nsOutputIndex)
                         {
                         case 0:
@@ -1891,6 +2266,11 @@ int main()
                                 CFD::UI::OutputField::VelocityMagnitude);
                             break;
                         }
+
+
+                        // ------------------------------------------------
+                        // Start solver
+                        // ------------------------------------------------
 
                         std::thread(
                             navierStokesSolverThread,
