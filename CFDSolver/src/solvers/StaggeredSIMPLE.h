@@ -14,6 +14,7 @@ namespace CFD
     class StaggeredSIMPLE
     {
     private:
+
         Mesh& mesh;
         StaggeredFields& fields;
 
@@ -22,16 +23,27 @@ namespace CFD
         BoundaryCondition& eastBC;
         BoundaryCondition& westBC;
 
+        // ============================================================
+        // LINEAR SYSTEMS
+        // ============================================================
+
         SparseMatrix uMatrix;
         Vector uRHS;
+
         SparseMatrix vMatrix;
         Vector vRHS;
+
         SparseMatrix pressureMatrix;
         Vector pressureRHS;
         Vector pressureCorrection;
 
+        // ============================================================
+        // SOLVER SETTINGS
+        // ============================================================
+
         double relaxationPressure{ 0.3 };
         double relaxationVelocity{ 0.7 };
+
         double rho{ 1.0 };
         double mu{ 0.01 };
 
@@ -39,16 +51,46 @@ namespace CFD
         // dimensionless relative algebraic L1 residuals.
         double convergenceTolerance{ 1.0e-6 };
         double momentumTolerance_{ 1.0e-6 };
+
         std::size_t maxIterations{ 1000 };
 
+        // ============================================================
+        // ITERATION STATE
+        // ============================================================
+
         std::size_t iteration{ 0 };
-        double residual{ 0.0 }; // Legacy alias for continuityResidual_.
+
+        bool converged_{ false };
+        bool finished_{ false };
+
+        // Legacy alias for continuityResidual_.
+        double residual{ 0.0 };
+
         double continuityResidual_{ 0.0 };
         double uMomentumResidual_{ 0.0 };
         double vMomentumResidual_{ 0.0 };
 
+        // ============================================================
+        // SIMPLE VELOCITY CORRECTION COEFFICIENTS
+        // ============================================================
+
+        /*
+         * dU has one value for every U face:
+         *
+         * (nx + 1) x ny
+         */
         std::vector<double> dU;
+
+        /*
+         * dV has one value for every V face:
+         *
+         * nx x (ny + 1)
+         */
         std::vector<double> dV;
+
+        // ============================================================
+        // INTERNAL METHODS
+        // ============================================================
 
         void applyBoundaryConditions();
 
@@ -64,10 +106,16 @@ namespace CFD
         void correctVelocities();
 
         void updateMomentumResiduals();
+
         double calculateResidual();
-        bool checkConvergence();
+        bool   checkConvergence();
 
     public:
+
+        // ============================================================
+        // CONSTRUCTOR
+        // ============================================================
+
         StaggeredSIMPLE(
             Mesh& mesh,
             StaggeredFields& fields,
@@ -76,29 +124,61 @@ namespace CFD
             BoundaryCondition& eastBC,
             BoundaryCondition& westBC);
 
+        // ============================================================
+        // SETTINGS
+        // ============================================================
+
         void setPressureRelaxation(double value);
         void setVelocityRelaxation(double value);
+
         void setConvergenceTolerance(double value);
         void setMomentumConvergenceTolerance(double value);
+
         void setMaxIterations(std::size_t value);
+
         void setDensity(double value);
         void setViscosity(double value);
 
+        // ============================================================
+        // GETTERS
+        // ============================================================
+
         double getPressureRelaxation() const;
         double getVelocityRelaxation() const;
+
         double getConvergenceTolerance() const;
         double getMomentumConvergenceTolerance() const;
+
         double getDensity() const;
         double getViscosity() const;
+
         std::size_t getMaxIterations() const;
         std::size_t getIteration() const;
 
-        // getResidual remains for backwards compatibility and returns the
-        // unnormalised continuity residual.
+        // ============================================================
+        // RESIDUALS
+        // ============================================================
+
+        // getResidual() is a backwards-compatible alias for
+        // getContinuityResidual().
         double getResidual() const;
         double getContinuityResidual() const;
         double getUMomentumResidual() const;
         double getVMomentumResidual() const;
+
+        // ============================================================
+        // ITERATIVE SOLVER INTERFACE
+        // ============================================================
+
+        void step();
+
+        bool finished() const;
+
+        bool converged() const;
+
+        // ============================================================
+        // FULL SOLVE
+        // ============================================================
 
         void solve();
     };
