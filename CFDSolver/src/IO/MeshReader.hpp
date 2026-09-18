@@ -6,7 +6,6 @@
 #include <vector>
 #include <filesystem>
 
-
 namespace CFD {
 
     struct ReadVertex
@@ -16,13 +15,13 @@ namespace CFD {
         float z;
 
         ReadVertex(float x, float y, float z)
-            : x(x), y(y), z(z) {
+            :x(x), y(y), z(z) {
         }
 
         ReadVertex(const ReadVertex& vertex)
-            : x(vertex.x), y(vertex.y), z(vertex.z) {
+            :x(vertex.x), y(vertex.y), z(vertex.z) {
         }
-
+       
     };
 
     struct ReadNormal
@@ -31,11 +30,11 @@ namespace CFD {
         float y;
         float z;
         ReadNormal(float x, float y, float z)
-            : x(x), y(y), z(z) {
+            :x(x), y(y), z(z) {
         }
 
         ReadNormal(const ReadNormal& normal)
-            : x(normal.x), y(normal.y), z(normal.z) {
+            :x(normal.x), y(normal.y), z(normal.z) {
         }
 
     };
@@ -131,6 +130,5 @@ namespace CFD {
         }
         return mesh;
     }
-
 
 } // namespace CFD
