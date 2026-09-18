@@ -10,16 +10,51 @@ namespace {
     {
         value = std::clamp(value, 0.0, 1.0);
 
-        const int r =
-            static_cast<int>(255.0 * value);
+        double r = 0.0;
+        double g = 0.0;
+        double b = 0.0;
 
-        const int b =
-            static_cast<int>(255.0 * (1.0 - value));
+        // Blue -> Cyan
+        if (value < 0.25)
+        {
+            const double t = value / 0.25;
+
+            r = 0.0;
+            g = t;
+            b = 1.0;
+        }
+        // Cyan -> Green
+        else if (value < 0.50)
+        {
+            const double t = (value - 0.25) / 0.25;
+
+            r = 0.0;
+            g = 1.0;
+            b = 1.0 - t;
+        }
+        // Green -> Yellow
+        else if (value < 0.75)
+        {
+            const double t = (value - 0.50) / 0.25;
+
+            r = t;
+            g = 1.0;
+            b = 0.0;
+        }
+        // Yellow -> Red
+        else
+        {
+            const double t = (value - 0.75) / 0.25;
+
+            r = 1.0;
+            g = 1.0 - t;
+            b = 0.0;
+        }
 
         return IM_COL32(
-            r,
-            0,
-            b,
+            static_cast<int>(255.0 * r),
+            static_cast<int>(255.0 * g),
+            static_cast<int>(255.0 * b),
             255);
     }
 

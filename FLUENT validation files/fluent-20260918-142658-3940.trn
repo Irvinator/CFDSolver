@@ -1,0 +1,268 @@
+Auto-Transcript Start Time:  14:26:58, 18 Sep 2026 GMT Summer Time 
+Current Directory: "C:\Users\mackm\source\CFDSolver\FLUENT validation files"
+
+              Welcome to ANSYS Fluent 2025 R1.03
+
+              Copyright 1987-2025 ANSYS, Inc. All Rights Reserved.
+              Unauthorized use, distribution or duplication is prohibited.
+              This product is subject to U.S. laws governing export and re-export.
+              For full Legal Notice, see documentation.
+
+Build Time: Jan  9 2025 12:40:05 EST  Build Id: 10211  
+ 
+Connected License Server List:	1055@ansys-teaching.leeds.ac.uk
+
+*********************************************
+Info: Your license enables 4-way parallel execution.
+For faster simulations, please start the application with the appropriate parallel options.
+*********************************************
+
+
+     --------------------------------------------------------------
+     This is an academic version of ANSYS FLUENT. Usage of this product
+     license is limited to the terms and conditions specified in your ANSYS
+     license form, additional terms section.
+     --------------------------------------------------------------
+Host spawning Node 0 on machine "DESKTOP-PHN5430" (win64).
+
+---------------------------------------------------------------------------------------
+ID    Hostname         Core  O.S.         PID    Vendor                               
+---------------------------------------------------------------------------------------
+n0    DESKTOP-PHN5430  1/12  Windows-x64  17500  AMD Ryzen 5 5600X 6-Core Processor   
+host  DESKTOP-PHN5430        Windows-x64  8472   AMD Ryzen 5 5600X 6-Core Processor   
+
+MPI Option Selected: intel
+---------------------------------------------------------------------------------------
+
+Cleanup script file is C:\\Users\\mackm\\source\\CFDSolver\\FLUENT validation files\\cleanup-fluent-DESKTOP-PHN5430-8472.bat
+
+Graphics driver currently in use: dx11
+
+
+Posting ANSYS Product Improvement Program startup data
+Done.
+Multicore SMT processors detected. Processor affinity set!
+Reading "C:/Users/mackm/source/CFDSolver/FLUENT validation files/1mx1m 20x20.msh"...
+Buffering for file scan...
+
+     361 nodes, binary.
+      80 nodes, binary.
+     760 2D interior faces, zone  1, binary.
+      40 2D wall faces, zone  5, binary.
+      20 2D velocity-inlet faces, zone  6, binary.
+      20 2D pressure-outlet faces, zone  7, binary.
+     400 quadrilateral cells, zone  2, binary.
+
+Building...
+     mesh
+     materials,
+     interface,
+     domains,
+     zones,
+	outlet
+	inlet
+	wall
+	surface_body
+	interior-surface_body
+     parallel,
+Done.
+
+> (cx-gui-do cx-activate-item "Ribbon*Frame1*Frame2(Domain)*Table1*Table3(Mesh)*PushButton1(Display)")
+(cx-gui-do cx-activate-item "Mesh Display*PanelButtons*PushButton1(OK)")
+(cx-gui-do cx-activate-item "Mesh Display*PanelButtons*PushButton2(Cancel)")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Models|Viscous (SST k-omega)"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Models|Viscous (SST k-omega)"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Models|Viscous (SST k-omega)"))
+(cx-gui-do cx-set-toggle-button2 "Viscous Model*Table1*ToggleBox1(Model)*Laminar" #t)
+(cx-gui-do cx-activate-item "Viscous Model*Table1*ToggleBox1(Model)*Laminar")
+(cx-gui-do cx-activate-item "Viscous Model*PanelButtons*PushButton1(OK)")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Models|Energy (Off)"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Models|Multiphase (Off)"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Models|Heat Exchanger (Off)"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Models|Radiation (Off)"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Models|Heat Exchanger (Off)"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Materials|Fluid"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Materials|Fluid"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Materials|Fluid"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Materials|Fluid|air"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Materials|Fluid|air"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Materials|Fluid|air"))
+(cx-gui-do cx-set-real-entry-list "Create/Edit Materials*RealEntry10" '( 1))
+(cx-gui-do cx-set-real-entry-list "Create/Edit Materials*RealEntry16" '( 0.01))
+(cx-gui-do cx-activate-item "Create/Edit Materials*PanelButtons*PushButton3(Change/Create)")
+(cx-gui-do cx-activate-item "Create/Edit Materials*PanelButtons*PushButton1(Close)")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Cell Zone Conditions|Fluid"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Cell Zone Conditions|Fluid"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Cell Zone Conditions|Fluid"))
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 1)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 2)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 2)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 3)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 4)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 5)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 6)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 7)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 8)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 9)
+(cx-gui-do cx-activate-tab-index "Fluid*Frame2*Table3*Frame1" 0)
+(cx-gui-do cx-activate-item "Fluid*PanelButtons*PushButton2(Cancel)")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Materials|Fluid|air"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Cell Zone Conditions|Fluid|surface_body (fluid, id=2)"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Boundary Conditions|Inlet"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Boundary Conditions|Inlet|inlet (velocity-inlet, id=6)"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Boundary Conditions|Inlet|inlet (velocity-inlet, id=6)"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Setup|Boundary Conditions|Inlet|inlet (velocity-inlet, id=6)"))
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 1)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 2)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 3)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 4)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 5)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 6)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 7)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 8)
+(cx-gui-do cx-activate-tab-index "Velocity Inlet*Frame2*Frame2" 0)
+(cx-gui-do cx-set-list-selections "Velocity Inlet*Frame2*Frame2*Frame1(Momentum)*Table1*DropDownList7(Velocity Specification Method)" '( 0))
+(cx-gui-do cx-enable-apply-button "Velocity Inlet")
+(cx-gui-do cx-activate-item "Velocity Inlet*Frame2*Frame2*Frame1(Momentum)*Table1*DropDownList7(Velocity Specification Method)")
+(cx-gui-do cx-set-expression-entry "Velocity Inlet*Frame2*Frame2*Frame1(Momentum)*Table1*Table9*ExpressionEntry1(Velocity Magnitude)" '("1" . 0))
+(cx-gui-do cx-activate-item "Velocity Inlet*PanelButtons*PushButton1(OK)")
+(cx-gui-do cx-activate-item "Velocity Inlet*PanelButtons*PushButton2(Cancel)")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Methods"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Methods"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Methods"))
+(cx-gui-do cx-set-list-selections "Solution Methods*Table1*Table2(Pressure-Velocity Coupling)*DropDownList1(Scheme)" '( 0))
+(cx-gui-do cx-activate-item "Solution Methods*Table1*Table2(Pressure-Velocity Coupling)*DropDownList1(Scheme)")
+(cx-gui-do cx-set-list-selections "Solution Methods*Table1*Table3(Spatial Discretization)*DropDownList1(Gradient)" '( 0))
+(cx-gui-do cx-activate-item "Solution Methods*Table1*Table3(Spatial Discretization)*DropDownList1(Gradient)")
+(cx-gui-do cx-set-list-selections "Solution Methods*Table1*Table3(Spatial Discretization)*DropDownList2(Pressure)" '( 1))
+(cx-gui-do cx-activate-item "Solution Methods*Table1*Table3(Spatial Discretization)*DropDownList2(Pressure)")
+(cx-gui-do cx-set-list-selections "Solution Methods*Table1*Table3(Spatial Discretization)*DropDownList3(Momentum)" '( 0))
+(cx-gui-do cx-activate-item "Solution Methods*Table1*Table3(Spatial Discretization)*DropDownList3(Momentum)")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Controls"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Controls"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Controls"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Report Definitions"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Report Definitions"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Report Definitions"))
+(cx-gui-do cx-activate-item "Report Definitions*PanelButtons*PushButton1(Close)")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Initialization"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Initialization"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Initialization"))
+(cx-gui-do cx-activate-item "Solution Initialization*Table1*Frame12*PushButton2(Initialize)")
+
+Initialize using the hybrid initialization method.
+
+Checking case topology... 
+-This case has both inlets & outlets 
+-Pressure information is not available at the boundaries.
+ Case will be initialized with constant pressure
+
+	iter		scalar-0
+
+	1		1.000000e+00
+	2		1.926712e-04
+	3		1.784351e-05
+	4		1.766292e-06
+	5		1.761711e-07
+	6		2.470886e-08
+	7		2.381061e-08
+	8		2.503197e-08
+	9		2.260149e-08
+	10		1.871953e-08
+
+Hybrid initialization is done.
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Run Calculation"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Run Calculation"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Solution|Run Calculation"))
+(cx-gui-do cx-activate-item "Run Calculation*Table1*Table6(Solution Advancement)*Table1*PushButton3(Calculate)")
+
+
+  iter  continuity  x-velocity  y-velocity     time/iter
+
+Calculation complete.
+(cx-gui-do cx-activate-item "Information*OK")
+(cx-gui-do cx-set-integer-entry "Run Calculation*Table1*Table3(Parameters)*Table1*Table1*IntegerEntry1(Number of Iterations)" 100)
+(cx-gui-do cx-activate-item "Run Calculation*Table1*Table3(Parameters)*Table1*Table1*IntegerEntry1(Number of Iterations)")
+(cx-gui-do cx-activate-item "Run Calculation*Table1*Table6(Solution Advancement)*Table1*PushButton3(Calculate)")
+
+
+  iter  continuity  x-velocity  y-velocity     time/iter
+     1  1.0000e+00  1.5385e-02  4.8960e-07  0:00:01   99
+     2  1.0000e+00  1.4488e-02  2.6140e-03  0:00:05   98
+     3  7.5601e-01  1.0636e-02  2.4573e-03  0:00:04   97
+     4  5.2739e-01  7.6771e-03  1.9321e-03  0:00:04   96
+     5  3.7273e-01  5.5437e-03  1.4667e-03  0:00:03   95
+     6  2.7886e-01  4.1874e-03  1.1616e-03  0:00:03   94
+     7  2.0682e-01  3.2641e-03  9.4389e-04  0:00:03   93
+     8  1.6892e-01  2.6133e-03  7.9339e-04  0:00:02   92
+     9  1.2024e-01  2.1074e-03  6.6556e-04  0:00:02   91
+    10  9.6142e-02  1.7255e-03  5.8031e-04  0:00:02   90
+    11  7.5241e-02  1.4131e-03  5.0190e-04  0:00:02   89
+
+  iter  continuity  x-velocity  y-velocity     time/iter
+    12  6.1732e-02  1.1561e-03  4.3708e-04  0:00:02   88
+    13  5.1779e-02  9.4022e-04  3.8054e-04  0:00:02   87
+    14  4.3853e-02  7.6042e-04  3.2899e-04  0:00:02   86
+    15  3.7566e-02  6.1198e-04  2.8261e-04  0:00:02   85
+    16  3.1323e-02  4.9270e-04  2.4118e-04  0:00:02   84
+    17  2.7935e-02  3.9386e-04  2.0441e-04  0:00:01   83
+    18  2.3689e-02  3.1581e-04  1.7121e-04  0:00:01   82
+    19  2.1103e-02  2.5095e-04  1.4210e-04  0:00:01   81
+    20  1.7536e-02  1.9873e-04  1.1676e-04  0:00:01   80
+    21  1.5503e-02  1.5555e-04  9.5214e-05  0:00:01   79
+    22  1.2653e-02  1.2132e-04  7.6796e-05  0:00:01   78
+
+  iter  continuity  x-velocity  y-velocity     time/iter
+    23  1.0998e-02  9.3465e-05  6.1493e-05  0:00:01   77
+    24  8.8148e-03  7.1828e-05  4.8731e-05  0:00:01   76
+    25  7.5188e-03  5.4520e-05  3.8359e-05  0:00:01   75
+    26  5.9316e-03  4.1300e-05  2.9882e-05  0:00:01   74
+    27  4.9561e-03  3.0947e-05  2.3107e-05  0:00:01   73
+    28  3.8705e-03  2.3147e-05  1.7755e-05  0:00:01   72
+    29  3.1681e-03  1.7200e-05  1.3502e-05  0:00:01   71
+    30  2.5067e-03  1.2722e-05  1.0222e-05  0:00:01   70
+    31  1.9589e-03  9.3572e-06  7.6695e-06  0:00:01   69
+    32  1.5215e-03  6.8415e-06  5.7212e-06  0:00:01   68
+    33  1.2366e-03  5.0022e-06  4.2353e-06  0:00:01   67
+
+  iter  continuity  x-velocity  y-velocity     time/iter
+    34  9.6976e-04  3.6028e-06  3.1207e-06  0:00:01   66
+!   34 solution is converged
+
+Calculation complete.
+(cx-gui-do cx-activate-item "Information*OK")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Results|Graphics|Contours"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Results|Graphics|Contours"))
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Results|Graphics|Contours"))
+(cx-gui-do cx-activate-item "NavigationPane*Frame2*Table1*List_Tree2")
+(cx-gui-do cx-set-list-tree-selections "NavigationPane*Frame2*Table1*List_Tree2" (list "Results|Graphics|Contours"))
+(cx-gui-do cx-activate-item "Contours*PanelButtons*PushButton1(OK)")
+Creating zone surface for surface_body zone

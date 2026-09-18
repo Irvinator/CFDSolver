@@ -1,3 +1,4 @@
+
 /**
  * CFD Solver Application
  * ImGui + OpenGL UI
@@ -46,7 +47,7 @@
  // RESULT FRAME
  // ================================================================
 
-struct PendingFrame
+    struct PendingFrame
 {
     // Heat
     std::vector<double> values;
@@ -63,6 +64,7 @@ struct PendingFrame
     double globalMax = 1.0;
 
     // Navier-Stokes
+    // These are now stored PER FRAME.
     double pressureMin = 0.0;
     double pressureMax = 1.0;
 
@@ -275,8 +277,10 @@ static void heatSolverThread(
         }
 
         if (globalMax <= globalMin)
+        {
             globalMax =
-            globalMin + 1.0;
+                globalMin + 1.0;
+        }
 
         const int nFrames =
             static_cast<int>(
@@ -538,6 +542,11 @@ static void navierStokesSolverThread(
             << westPressure
             << '\n';
 
+
+        // ============================================================
+        // RAW ANIMATION FRAME
+        // ============================================================
+
         struct RawFrame
         {
             std::vector<double> pressure;
@@ -545,36 +554,43 @@ static void navierStokesSolverThread(
             std::vector<double> velocityV;
 
             double time = 0.0;
+
+            // --------------------------------------------------------
+            // IMPORTANT:
+            // Each frame stores its own colour-map range.
+            // --------------------------------------------------------
+
+            double pressureMin = 0.0;
+            double pressureMax = 1.0;
+
+            double velocityUMin = 0.0;
+            double velocityUMax = 1.0;
+
+            double velocityVMin = 0.0;
+            double velocityVMax = 1.0;
         };
+
 
         std::vector<RawFrame> rawFrames;
 
         rawFrames.reserve(
             solver.getMaxIterations());
 
-        double pressureMin =
-            1.0e30;
 
-        double pressureMax =
-            -1.0e30;
-
-        double velocityUMin =
-            1.0e30;
-
-        double velocityUMax =
-            -1.0e30;
-
-        double velocityVMin =
-            1.0e30;
-
-        double velocityVMax =
-            -1.0e30;
+        // ============================================================
+        // SOLVER LOOP
+        // ============================================================
 
         while (
             !solver.finished() &&
             g_solverRunning)
         {
             solver.step();
+
+
+            // --------------------------------------------------------
+            // Create frame
+            // --------------------------------------------------------
 
             RawFrame rf;
 
@@ -589,6 +605,36 @@ static void navierStokesSolverThread(
             rf.velocityV.resize(
                 static_cast<std::size_t>(
                     meshNx * meshNy));
+
+
+            // --------------------------------------------------------
+            // PER-FRAME MIN/MAX
+            //
+            // These are reset every iteration.
+            // --------------------------------------------------------
+
+            double framePressureMin =
+                1.0e30;
+
+            double framePressureMax =
+                -1.0e30;
+
+            double frameVelocityUMin =
+                1.0e30;
+
+            double frameVelocityUMax =
+                -1.0e30;
+
+            double frameVelocityVMin =
+                1.0e30;
+
+            double frameVelocityVMax =
+                -1.0e30;
+
+
+            // --------------------------------------------------------
+            // Extract cell-centred values
+            // --------------------------------------------------------
 
             for (
                 int j = 0;
@@ -627,6 +673,11 @@ static void navierStokesSolverThread(
                         static_cast<std::size_t>(
                             j * meshNx + i);
 
+
+                    // ------------------------------------------------
+                    // Store values
+                    // ------------------------------------------------
+
                     rf.pressure[index] =
                         pCell;
 
@@ -636,44 +687,116 @@ static void navierStokesSolverThread(
                     rf.velocityV[index] =
                         vCell;
 
-                    pressureMin =
+
+                    // ------------------------------------------------
+                    // Pressure range for THIS frame
+                    // ------------------------------------------------
+
+                    framePressureMin =
                         std::min(
-                            pressureMin,
+                            framePressureMin,
                             pCell);
 
-                    pressureMax =
+                    framePressureMax =
                         std::max(
-                            pressureMax,
+                            framePressureMax,
                             pCell);
 
-                    velocityUMin =
+
+                    // ------------------------------------------------
+                    // U velocity range for THIS frame
+                    // ------------------------------------------------
+
+                    frameVelocityUMin =
                         std::min(
-                            velocityUMin,
+                            frameVelocityUMin,
                             uCell);
 
-                    velocityUMax =
+                    frameVelocityUMax =
                         std::max(
-                            velocityUMax,
+                            frameVelocityUMax,
                             uCell);
 
-                    velocityVMin =
+
+                    // ------------------------------------------------
+                    // V velocity range for THIS frame
+                    // ------------------------------------------------
+
+                    frameVelocityVMin =
                         std::min(
-                            velocityVMin,
+                            frameVelocityVMin,
                             vCell);
 
-                    velocityVMax =
+                    frameVelocityVMax =
                         std::max(
-                            velocityVMax,
+                            frameVelocityVMax,
                             vCell);
                 }
             }
+
+
+            // --------------------------------------------------------
+            // Protect against zero-width ranges
+            // --------------------------------------------------------
+
+            if (framePressureMax <= framePressureMin)
+            {
+                framePressureMax =
+                    framePressureMin + 1.0;
+            }
+
+            if (frameVelocityUMax <= frameVelocityUMin)
+            {
+                frameVelocityUMax =
+                    frameVelocityUMin + 1.0;
+            }
+
+            if (frameVelocityVMax <= frameVelocityVMin)
+            {
+                frameVelocityVMax =
+                    frameVelocityVMin + 1.0;
+            }
+
+
+            // --------------------------------------------------------
+            // Store per-frame ranges
+            // --------------------------------------------------------
+
+            rf.pressureMin =
+                framePressureMin;
+
+            rf.pressureMax =
+                framePressureMax;
+
+            rf.velocityUMin =
+                frameVelocityUMin;
+
+            rf.velocityUMax =
+                frameVelocityUMax;
+
+            rf.velocityVMin =
+                frameVelocityVMin;
+
+            rf.velocityVMax =
+                frameVelocityVMax;
+
+
+            // --------------------------------------------------------
+            // Animation time = SIMPLE iteration
+            // --------------------------------------------------------
 
             rf.time =
                 static_cast<double>(
                     solver.getIteration());
 
+
             rawFrames.push_back(
                 std::move(rf));
+
+
+            // --------------------------------------------------------
+            // Progress
+            // --------------------------------------------------------
 
             const float progress =
                 static_cast<float>(
@@ -688,6 +811,11 @@ static void navierStokesSolverThread(
                     1.0f);
         }
 
+
+        // ============================================================
+        // NO FRAMES
+        // ============================================================
+
         if (rawFrames.empty())
         {
             g_solverProgress = 1.0f;
@@ -695,17 +823,10 @@ static void navierStokesSolverThread(
             return;
         }
 
-        if (pressureMax <= pressureMin)
-            pressureMax =
-            pressureMin + 1.0;
 
-        if (velocityUMax <= velocityUMin)
-            velocityUMax =
-            velocityUMin + 1.0;
-
-        if (velocityVMax <= velocityVMin)
-            velocityVMax =
-            velocityVMin + 1.0;
+        // ============================================================
+        // ANIMATION SPEED
+        // ============================================================
 
         const int nFrames =
             static_cast<int>(
@@ -724,6 +845,11 @@ static void navierStokesSolverThread(
                 autoSpeed,
                 1.0f,
                 60.0f);
+
+
+        // ============================================================
+        // SEND FRAMES TO MAIN THREAD
+        // ============================================================
 
         {
             std::lock_guard<std::mutex>
@@ -748,23 +874,29 @@ static void navierStokesSolverThread(
                 pf.time =
                     rf.time;
 
+
+                // ----------------------------------------------------
+                // IMPORTANT:
+                // Pass the ranges belonging to THIS frame.
+                // ----------------------------------------------------
+
                 pf.pressureMin =
-                    pressureMin;
+                    rf.pressureMin;
 
                 pf.pressureMax =
-                    pressureMax;
+                    rf.pressureMax;
 
                 pf.velocityUMin =
-                    velocityUMin;
+                    rf.velocityUMin;
 
                 pf.velocityUMax =
-                    velocityUMax;
+                    rf.velocityUMax;
 
                 pf.velocityVMin =
-                    velocityVMin;
+                    rf.velocityVMin;
 
                 pf.velocityVMax =
-                    velocityVMax;
+                    rf.velocityVMax;
 
                 pf.navierStokes =
                     true;
@@ -773,6 +905,11 @@ static void navierStokesSolverThread(
                     std::move(pf));
             }
         }
+
+
+        // ============================================================
+        // COMPLETE
+        // ============================================================
 
         std::cout
             << "\n========================================\n"
@@ -838,6 +975,7 @@ int main()
 
         return -1;
     }
+
 
     // ================================================================
     // HEAT SETTINGS
@@ -931,6 +1069,7 @@ int main()
     while (!window.shouldClose())
     {
         window.beginFrame();
+
 
         // ============================================================
         // RECEIVE SOLVER RESULTS
@@ -1499,7 +1638,9 @@ int main()
             };
 
 
+            // --------------------------------------------------------
             // NORTH
+            // --------------------------------------------------------
 
             ImGui::Text("North");
 
@@ -1538,7 +1679,9 @@ int main()
             ImGui::Spacing();
 
 
+            // --------------------------------------------------------
             // SOUTH
+            // --------------------------------------------------------
 
             ImGui::Text("South");
 
@@ -1577,7 +1720,9 @@ int main()
             ImGui::Spacing();
 
 
+            // --------------------------------------------------------
             // EAST
+            // --------------------------------------------------------
 
             ImGui::Text("East");
 
@@ -1616,7 +1761,9 @@ int main()
             ImGui::Spacing();
 
 
+            // --------------------------------------------------------
             // WEST
+            // --------------------------------------------------------
 
             ImGui::Text("West");
 
@@ -1654,9 +1801,6 @@ int main()
 
             ImGui::Spacing();
         }
-          
-
-           
 
 
         // ============================================================
@@ -1701,6 +1845,11 @@ int main()
                     const auto settings =
                         meshEditor.meshSettings();
 
+
+                    // ------------------------------------------------
+                    // HEAT
+                    // ------------------------------------------------
+
                     if (physType == 0)
                     {
                         meshEditor.setOutputField(
@@ -1727,6 +1876,11 @@ int main()
                         ).detach();
                     }
 
+
+                    // ------------------------------------------------
+                    // NAVIER-STOKES
+                    // ------------------------------------------------
+
                     else if (physType == 1)
                     {
                         CFD::BoundaryType northType =
@@ -1741,75 +1895,119 @@ int main()
                         CFD::BoundaryType westType =
                             CFD::BoundaryType::Wall;
 
+
+                        // ------------------------------------------------
+                        // NORTH TYPE
+                        // ------------------------------------------------
+
                         switch (northTypeIndex)
                         {
                         case 0:
+
                             northType =
                                 CFD::BoundaryType::Wall;
+
                             break;
 
                         case 1:
+
                             northType =
                                 CFD::BoundaryType::Inlet;
+
                             break;
 
                         case 2:
+
                             northType =
                                 CFD::BoundaryType::Outlet;
+
                             break;
                         }
+
+
+                        // ------------------------------------------------
+                        // SOUTH TYPE
+                        // ------------------------------------------------
 
                         switch (southTypeIndex)
                         {
                         case 0:
+
                             southType =
                                 CFD::BoundaryType::Wall;
+
                             break;
 
                         case 1:
+
                             southType =
                                 CFD::BoundaryType::Inlet;
+
                             break;
 
                         case 2:
+
                             southType =
                                 CFD::BoundaryType::Outlet;
+
                             break;
                         }
+
+
+                        // ------------------------------------------------
+                        // EAST TYPE
+                        // ------------------------------------------------
 
                         switch (eastTypeIndex)
                         {
                         case 0:
+
                             eastType =
                                 CFD::BoundaryType::Wall;
+
                             break;
 
                         case 1:
+
                             eastType =
                                 CFD::BoundaryType::Inlet;
+
                             break;
 
                         case 2:
+
                             eastType =
                                 CFD::BoundaryType::Outlet;
+
                             break;
                         }
+
+
+                        // ------------------------------------------------
+                        // WEST TYPE
+                        // ------------------------------------------------
 
                         switch (westTypeIndex)
                         {
                         case 0:
+
                             westType =
                                 CFD::BoundaryType::Wall;
+
                             break;
 
                         case 1:
+
                             westType =
                                 CFD::BoundaryType::Inlet;
+
                             break;
 
                         case 2:
+
                             westType =
                                 CFD::BoundaryType::Outlet;
+
                             break;
                         }
 
@@ -1850,6 +2048,10 @@ int main()
                         }
 
 
+                        // ------------------------------------------------
+                        // START SOLVER THREAD
+                        // ------------------------------------------------
+
                         std::thread(
                             navierStokesSolverThread,
 
@@ -1866,34 +2068,46 @@ int main()
                                 mu),
 
                             northType,
+
                             static_cast<double>(
                                 northU),
+
                             static_cast<double>(
                                 northV),
+
                             static_cast<double>(
                                 northPressure),
 
                             southType,
+
                             static_cast<double>(
                                 southU),
+
                             static_cast<double>(
                                 southV),
+
                             static_cast<double>(
                                 southPressure),
 
                             eastType,
+
                             static_cast<double>(
                                 eastU),
+
                             static_cast<double>(
                                 eastV),
+
                             static_cast<double>(
                                 eastPressure),
 
                             westType,
+
                             static_cast<double>(
                                 westU),
+
                             static_cast<double>(
                                 westV),
+
                             static_cast<double>(
                                 westPressure)
 
@@ -2017,23 +2231,31 @@ int main()
             switch (nsOutputIndex)
             {
             case 0:
+
                 resultName =
                     "Pressure";
+
                 break;
 
             case 1:
+
                 resultName =
                     "Velocity U";
+
                 break;
 
             case 2:
+
                 resultName =
                     "Velocity V";
+
                 break;
 
             case 3:
+
                 resultName =
                     "Velocity Magnitude";
+
                 break;
             }
 
@@ -2213,7 +2435,5 @@ int main()
     window.cleanup();
 
     return 0;
-   
-    }
-  
+}
 
