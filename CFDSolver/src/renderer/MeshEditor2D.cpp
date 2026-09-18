@@ -771,9 +771,10 @@ namespace CFD::UI {
         if (dx <= 0.0 || dy <= 0.0)
             return;
 
-        /*
-            Bilinear interpolation of the cell-centred velocity field.
-        */
+        // ================================================================
+        // Velocity interpolation
+        // ================================================================
+
         auto sampleVelocity =
             [&](double x,
                 double y,
@@ -808,12 +809,6 @@ namespace CFD::UI {
                 double ty =
                     fy - static_cast<double>(j0);
 
-                /*
-                    Clamp to the valid cell range.
-
-                    At the boundaries this effectively reduces
-                    interpolation to the nearest available cells.
-                */
                 i0 =
                     std::clamp(
                         i0,
@@ -915,35 +910,19 @@ namespace CFD::UI {
                 return true;
             };
 
-        /*
-            Streamline integration.
+        // ================================================================
+        // Integration settings
+        // ================================================================
 
-            A relatively small step keeps the lines smooth while
-            remaining inexpensive for your current 2D solver.
-        */
         const double stepSize =
             0.20 *
             std::min(dx, dy);
 
         const int maxSteps = 500;
 
-        /*
-            Seeds are placed throughout the domain.
-
-            More seeds horizontally than vertically gives good
-            coverage without making the viewport too cluttered.
-        */
-        const int seedNX =
-            std::clamp(
-                nx / 2,
-                8,
-                20);
-
-        const int seedNY =
-            std::clamp(
-                ny / 2,
-                8,
-                20);
+        // ================================================================
+        // Streamline integration
+        // ================================================================
 
         auto integrate =
             [&](double startX,
@@ -983,9 +962,10 @@ namespace CFD::UI {
                     if (speed1 < 1.0e-10)
                         break;
 
-                    /*
-                        RK2 midpoint step.
-                    */
+                    // ----------------------------------------------------
+                    // RK2 midpoint integration
+                    // ----------------------------------------------------
+
                     const double midX =
                         x +
                         0.5 *
@@ -1058,13 +1038,43 @@ namespace CFD::UI {
                 }
             };
 
+        // ================================================================
+        // Density-controlled seed distribution
+        // ================================================================
+
+        const int seedNX =
+            std::clamp(
+                streamlineDensity_,
+                2,
+                100);
+
+        const int seedNY =
+            std::clamp(
+                streamlineDensity_,
+                2,
+                100);
+
         /*
             Seed streamlines throughout the domain.
 
-            We integrate both forward and backward from each seed.
-            This makes the seed distribution much more useful for
-            recirculating flows such as the lid-driven cavity.
+            The density slider controls both directions.
+
+            For example:
+
+                Density = 10
+                    10 x 10 = 100 seeds
+
+                Density = 20
+                    20 x 20 = 400 seeds
+
+                Density = 50
+                    50 x 50 = 2500 seeds
+
+            Each seed is integrated forwards and backwards so that
+            recirculating flows such as the lid-driven cavity are
+            represented properly.
         */
+
         for (int sy = 0;
             sy < seedNY;
             ++sy)
@@ -1286,6 +1296,40 @@ namespace CFD::UI {
                     ImGui::Checkbox(
                         "Show Streamlines",
                         &showStreamlines_);
+
+                    if (showStreamlines_)
+                    {
+                        ImGui::Spacing();
+
+                        ImGui::Text(
+                            "Streamline Density");
+
+                        ImGui::SetNextItemWidth(-1.0f);
+
+                        int density =
+                            streamlineDensity_;
+
+                        if (ImGui::SliderInt(
+                            "##streamline_density",
+                            &density,
+                            2,
+                            20))
+                        {
+                            streamlineDensity_ =
+                                std::clamp(
+                                    density,
+                                    2,
+                                    20);
+                        }
+
+                        ImGui::Text(
+                            "%d x %d seeds",
+                            streamlineDensity_,
+                            streamlineDensity_);
+
+                        ImGui::TextDisabled(
+                            "Higher density = more streamlines");
+                    }
                 }
             }
 

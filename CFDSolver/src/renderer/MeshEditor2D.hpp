@@ -164,6 +164,21 @@ namespace CFD::UI {
         }
 
         // ------------------------------------------------------------
+        // Streamline settings
+        // ------------------------------------------------------------
+
+        void setStreamlineDensity(int density) {
+            streamlineDensity_ = std::clamp(
+                density,
+                2,
+                100);
+        }
+
+        int streamlineDensity() const {
+            return streamlineDensity_;
+        }
+
+        // ------------------------------------------------------------
         // Imported mesh
         // ------------------------------------------------------------
 
@@ -262,9 +277,24 @@ namespace CFD::UI {
         bool showGrid_ = true;
         bool showColormap_ = true;
 
+        // ------------------------------------------------------------
         // Navier-Stokes overlays
+        // ------------------------------------------------------------
+
         bool showVelocityVectors_ = false;
         bool showStreamlines_ = false;
+
+        // Number of seed points in each direction.
+        //
+        // Example:
+        //   10 -> 100 possible seeds
+        //   20 -> 400 possible seeds
+        //   50 -> 2500 possible seeds
+        //   100 -> 10000 possible seeds
+        //
+        // Forward and backward integration means the actual
+        // number of drawn streamline branches can be higher.
+        int streamlineDensity_ = 5;
 
         // ------------------------------------------------------------
         // Current displayed scalar
