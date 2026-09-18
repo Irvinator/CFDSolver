@@ -7,169 +7,169 @@
 #include <stdexcept>
 #include <vector>
 // method to solve non symettric matrices used for solving momentum transport equations in SIMPLE algorithm
-int main()
-{
-    try
+    int main()
     {
-        std::cout << "==============================\n";
-        std::cout << "       BiCGSTAB Test\n";
-        std::cout << "==============================\n\n";
-
-        // --------------------------------------------------
-        // Matrix:
-        //
-        // [ 4  1  0 ]
-        // [ 1  4  1 ]
-        // [ 0  1  4 ]
-        //
-        // Exact solution:
-        //
-        // x = [1, 2, 3]
-        //
-        // Therefore:
-        //
-        // b = [6, 12, 14]
-        // --------------------------------------------------
-
-        CFD::SparseMatrix A(3, 3);
-
-        // COO triplets
-        std::vector<std::size_t> rowIdx =
+        try
         {
-            0, 0,
-            1, 1, 1,
-            2, 2
-        };
+            std::cout << "==============================\n";
+            std::cout << "       BiCGSTAB Test\n";
+            std::cout << "==============================\n\n";
 
-        std::vector<std::size_t> colIdx =
-        {
-            0, 1,
-            0, 1, 2,
-            1, 2
-        };
+            // --------------------------------------------------
+            // Matrix:
+            //
+            // [ 4  1  0 ]
+            // [ 1  4  1 ]
+            // [ 0  1  4 ]
+            //
+            // Exact solution:
+            //
+            // x = [1, 2, 3]
+            //
+            // Therefore:
+            //
+            // b = [6, 12, 14]
+            // --------------------------------------------------
 
-        std::vector<double> values =
-        {
-            4.0, 1.0,
-            1.0, 4.0, 1.0,
-            1.0, 4.0
-        };
+            CFD::SparseMatrix A(3, 3);
 
-        // Convert COO triplets to CSR
-        A.setFromTriplets(rowIdx, colIdx, values);
+            // COO triplets
+            std::vector<std::size_t> rowIdx =
+            {
+                0, 0,
+                1, 1, 1,
+                2, 2
+            };
 
-        std::cout << "Matrix information:\n";
-        A.printInfo();
+            std::vector<std::size_t> colIdx =
+            {
+                0, 1,
+                0, 1, 2,
+                1, 2
+            };
 
-        std::cout << "\nMatrix:\n";
-        A.printDense();
+            std::vector<double> values =
+            {
+                4.0, 1.0,
+                1.0, 4.0, 1.0,
+                1.0, 4.0
+            };
 
-        // --------------------------------------------------
-        // RHS
-        // --------------------------------------------------
+            // Convert COO triplets to CSR
+            A.setFromTriplets(rowIdx, colIdx, values);
 
-        CFD::Vector b(3);
+            std::cout << "Matrix information:\n";
+            A.printInfo();
 
-        b[0] = 6.0;
-        b[1] = 12.0;
-        b[2] = 14.0;
+            std::cout << "\nMatrix:\n";
+            A.printDense();
 
-        // Initial guess
-        CFD::Vector x(3, 0.0);
+            // --------------------------------------------------
+            // RHS
+            // --------------------------------------------------
 
-        // --------------------------------------------------
-        // Solve
-        // --------------------------------------------------
+            CFD::Vector b(3);
 
-        CFD::BiCGSTAB solver(1e-10, 1000);
+            b[0] = 6.0;
+            b[1] = 12.0;
+            b[2] = 14.0;
 
-        CFD::BiCGSTABResult result =
-            solver.solve(A, b, x, true);
+            // Initial guess
+            CFD::Vector x(3, 0.0);
 
-        result.print();
+            // --------------------------------------------------
+            // Solve
+            // --------------------------------------------------
 
-        // --------------------------------------------------
-        // Expected solution
-        // --------------------------------------------------
+            CFD::BiCGSTAB solver(1e-10, 1000);
 
-        const double expected[] =
-        {
-            1.0,
-            2.0,
-            3.0
-        };
+            CFD::BiCGSTABResult result =
+                solver.solve(A, b, x, true);
 
-        std::cout << "\nSolution:\n";
+            result.print();
 
-        for (std::size_t i = 0; i < x.size(); ++i)
-        {
-            std::cout
-                << "x[" << i << "] = "
-                << x[i]
-                << "  expected = "
-                << expected[i]
-                << "\n";
-        }
+            // --------------------------------------------------
+            // Expected solution
+            // --------------------------------------------------
 
-        // --------------------------------------------------
-        // Verify solution
-        // --------------------------------------------------
+            const double expected[] =
+            {
+                1.0,
+                2.0,
+                3.0
+            };
 
-        const double tolerance = 1e-8;
+            std::cout << "\nSolution:\n";
 
-        for (std::size_t i = 0; i < x.size(); ++i)
-        {
-            if (std::abs(x[i] - expected[i]) > tolerance)
+            for (std::size_t i = 0; i < x.size(); ++i)
+            {
+                std::cout
+                    << "x[" << i << "] = "
+                    << x[i]
+                    << "  expected = "
+                    << expected[i]
+                    << "\n";
+            }
+
+            // --------------------------------------------------
+            // Verify solution
+            // --------------------------------------------------
+
+            const double tolerance = 1e-8;
+
+            for (std::size_t i = 0; i < x.size(); ++i)
+            {
+                if (std::abs(x[i] - expected[i]) > tolerance)
+                {
+                    std::cerr
+                        << "\nTEST FAILED: incorrect solution.\n";
+
+                    return 1;
+                }
+            }
+
+            // Check convergence
+            if (!result.converged)
             {
                 std::cerr
-                    << "\nTEST FAILED: incorrect solution.\n";
+                    << "\nTEST FAILED: solver did not converge.\n";
 
                 return 1;
             }
-        }
 
-        // Check convergence
-        if (!result.converged)
+            // Check the actual residual A*x - b
+            CFD::Vector Ax = A.multiply(x);
+            CFD::Vector residual = Ax - b;
+
+            double residualNorm =
+                std::sqrt(residual.dot(residual));
+
+            std::cout
+                << "\nFinal residual norm = "
+                << residualNorm
+                << "\n";
+
+            if (residualNorm > tolerance)
+            {
+                std::cerr
+                    << "\nTEST FAILED: residual too large.\n";
+
+                return 1;
+            }
+
+            std::cout << "\n==============================\n";
+            std::cout << "       TEST PASSED!\n";
+            std::cout << "==============================\n";
+
+            return 0;
+        }
+        catch (const std::exception& e)
         {
             std::cerr
-                << "\nTEST FAILED: solver did not converge.\n";
+                << "\nTEST FAILED: "
+                << e.what()
+                << "\n";
 
             return 1;
         }
-
-        // Check the actual residual A*x - b
-        CFD::Vector Ax = A.multiply(x);
-        CFD::Vector residual = Ax - b;
-
-        double residualNorm =
-            std::sqrt(residual.dot(residual));
-
-        std::cout
-            << "\nFinal residual norm = "
-            << residualNorm
-            << "\n";
-
-        if (residualNorm > tolerance)
-        {
-            std::cerr
-                << "\nTEST FAILED: residual too large.\n";
-
-            return 1;
-        }
-
-        std::cout << "\n==============================\n";
-        std::cout << "       TEST PASSED!\n";
-        std::cout << "==============================\n";
-
-        return 0;
     }
-    catch (const std::exception& e)
-    {
-        std::cerr
-            << "\nTEST FAILED: "
-            << e.what()
-            << "\n";
-
-        return 1;
-    }
-}
