@@ -14,18 +14,18 @@ namespace CFD
     class StaggeredSIMPLE
     {
     private:
+
         Mesh& mesh;
         StaggeredFields& fields;
 
-        
-            BoundaryCondition& northBC;
+        BoundaryCondition& northBC;
         BoundaryCondition& southBC;
         BoundaryCondition& eastBC;
         BoundaryCondition& westBC;
 
-        // ------------------------------------------------------------
-        // Linear systems
-        // ------------------------------------------------------------
+        // ============================================================
+        // LINEAR SYSTEMS
+        // ============================================================
 
         SparseMatrix uMatrix;
         Vector uRHS;
@@ -37,9 +37,9 @@ namespace CFD
         Vector pressureRHS;
         Vector pressureCorrection;
 
-        // ------------------------------------------------------------
-        // Solver settings
-        // ------------------------------------------------------------
+        // ============================================================
+        // SOLVER SETTINGS
+        // ============================================================
 
         double relaxationPressure{ 0.3 };
         double relaxationVelocity{ 0.7 };
@@ -52,43 +52,42 @@ namespace CFD
 
         std::size_t maxIterations{ 1000 };
 
-        // ------------------------------------------------------------
-        // Iteration state
-        // ------------------------------------------------------------
+        // ============================================================
+        // ITERATION STATE
+        // ============================================================
 
         std::size_t iteration{ 0 };
 
         bool converged_{ false };
         bool finished_{ false };
 
-        // Legacy residual.
-        // This remains equal to the continuity residual.
-        double residual{
-            0.0
-        };
+        double residual{ 0.0 };
 
-        double continuityResidual_{
-            0.0
-        };
+        double continuityResidual_{ 0.0 };
+        double uMomentumResidual_{ 0.0 };
+        double vMomentumResidual_{ 0.0 };
 
-        double uMomentumResidual_{
-            0.0
-        };
+        // ============================================================
+        // SIMPLE VELOCITY CORRECTION COEFFICIENTS
+        // ============================================================
 
-        double vMomentumResidual_{
-            0.0
-        };
-
-        // ------------------------------------------------------------
-        // SIMPLE velocity correction coefficients
-        // ------------------------------------------------------------
-
+        /*
+         * dU has one value for every U face:
+         *
+         * (nx + 1) x ny
+         */
         std::vector<double> dU;
+
+        /*
+         * dV has one value for every V face:
+         *
+         * nx x (ny + 1)
+         */
         std::vector<double> dV;
 
-        // ------------------------------------------------------------
-        // Internal methods
-        // ------------------------------------------------------------
+        // ============================================================
+        // INTERNAL METHODS
+        // ============================================================
 
         void applyBoundaryConditions();
 
@@ -111,9 +110,9 @@ namespace CFD
 
     public:
 
-        // ------------------------------------------------------------
-        // Constructor
-        // ------------------------------------------------------------
+        // ============================================================
+        // CONSTRUCTOR
+        // ============================================================
 
         StaggeredSIMPLE(
             Mesh& mesh,
@@ -123,9 +122,9 @@ namespace CFD
             BoundaryCondition& eastBC,
             BoundaryCondition& westBC);
 
-        // ------------------------------------------------------------
-        // Settings
-        // ------------------------------------------------------------
+        // ============================================================
+        // SETTINGS
+        // ============================================================
 
         void setPressureRelaxation(double value);
         void setVelocityRelaxation(double value);
@@ -138,9 +137,9 @@ namespace CFD
         void setDensity(double value);
         void setViscosity(double value);
 
-        // ------------------------------------------------------------
-        // Settings getters
-        // ------------------------------------------------------------
+        // ============================================================
+        // GETTERS
+        // ============================================================
 
         double getPressureRelaxation() const;
         double getVelocityRelaxation() const;
@@ -153,59 +152,32 @@ namespace CFD
 
         std::size_t getMaxIterations() const;
 
-        // ------------------------------------------------------------
-        // Iteration information
-        // ------------------------------------------------------------
-
         std::size_t getIteration() const;
 
-        // ------------------------------------------------------------
-        // Residuals
-        // ------------------------------------------------------------
+        // ============================================================
+        // RESIDUALS
+        // ============================================================
 
-        // Legacy getter.
-        // Returns continuity residual.
         double getResidual() const;
 
         double getContinuityResidual() const;
         double getUMomentumResidual() const;
         double getVMomentumResidual() const;
 
-        // ------------------------------------------------------------
-        // Iterative solver interface
-        // ------------------------------------------------------------
+        // ============================================================
+        // ITERATIVE SOLVER INTERFACE
+        // ============================================================
 
-        /*
-         * Performs exactly ONE SIMPLE iteration.
-         *
-         * This is the function used by the GUI animation thread.
-         */
         void step();
 
-        /*
-         * Returns true when either:
-         *
-         * 1. The SIMPLE solution has converged, or
-         * 2. Maximum iterations have been reached.
-         */
         bool finished() const;
 
-        /*
-         * Returns whether the current solution has actually converged.
-         */
         bool converged() const;
 
-        // ------------------------------------------------------------
-        // Full solve
-        // ------------------------------------------------------------
+        // ============================================================
+        // FULL SOLVE
+        // ============================================================
 
-        /*
-         * Runs SIMPLE until convergence or maximum iterations.
-         *
-         * This is retained for non-GUI / normal solver usage.
-         */
         void solve();
     };
-    
-
 }

@@ -48,7 +48,7 @@ namespace CFD
         const auto& ci = matrix.colIndices();
         const auto& vv = matrix.values();
 
-        if (rp.size() < matrix.rows() + 1)
+        if (rp.size() != matrix.rows() + 1)
             return 0.0;
 
         if (rp[P] > rp[P + 1] ||
@@ -110,7 +110,8 @@ namespace CFD
             l1Rhs += std::abs(rhs[row]);
         }
 
-        return l1Residual / std::max(l1Rhs, 1.0);
+        return l1Residual /
+            std::max(l1Rhs, 1.0);
     }
 
 
@@ -336,17 +337,7 @@ namespace CFD
         const int ny = mesh.getNy();
 
         // ------------------------------------------------------------
-        // WEST / EAST U boundaries
-        //
-        // U is normal to the west/east walls.
-        //
-        // This is important for the cavity:
-        //
-        // west U = 0
-        // east U = 0
-        //
-        // Without explicitly enforcing the east U boundary, the
-        // cavity can behave as though the right wall is partially open.
+        // U NORMAL VELOCITIES
         // ------------------------------------------------------------
 
         for (int j = 0; j < ny; ++j)
@@ -365,9 +356,7 @@ namespace CFD
         }
 
         // ------------------------------------------------------------
-        // SOUTH / NORTH V boundaries
-        //
-        // V is normal to the south/north walls.
+        // V NORMAL VELOCITIES
         // ------------------------------------------------------------
 
         for (int i = 0; i < nx; ++i)
@@ -384,11 +373,6 @@ namespace CFD
                     northBC.getV();
             }
         }
-
-        /*
-         * Tangential wall velocities are imposed through the
-         * half-cell diffusion terms in the momentum equations.
-         */
     }
 
 
@@ -413,6 +397,12 @@ namespace CFD
         const double dx = mesh.getDx();
         const double dy = mesh.getDy();
 
+        /*
+         * On a 2D unit-depth mesh:
+         *
+         * Ae = vertical face area = dy
+         * An = horizontal face area = dx
+         */
         const double Ae =
             mesh.eastWestFaceArea();
 
@@ -444,19 +434,11 @@ namespace CFD
                         fields.uIndex(i, j));
 
                 // ----------------------------------------------------
-                // WEST NORMAL VELOCITY BOUNDARY
+                // NORMAL VELOCITY BOUNDARIES
                 // ----------------------------------------------------
 
                 const bool westFixed =
                     (i == 0 && westBC.hasU());
-
-                // ----------------------------------------------------
-                // EAST NORMAL VELOCITY BOUNDARY
-                //
-                // This is the critical cavity correction.
-                // A stationary or moving wall has prescribed U.
-                // An outlet does not.
-                // ----------------------------------------------------
 
                 const bool eastFixed =
                     (i == nx && eastBC.hasU());
@@ -478,14 +460,18 @@ namespace CFD
                 }
 
                 // ----------------------------------------------------
-                // DIFFUSIVE COEFFICIENTS
+                // DIFFUSION
                 // ----------------------------------------------------
 
                 const double aE_diff =
-                    (i < nx) ? De : 0.0;
+                    (i < nx)
+                    ? De
+                    : 0.0;
 
                 const double aW_diff =
-                    (i > 0) ? Dw : 0.0;
+                    (i > 0)
+                    ? Dw
+                    : 0.0;
 
                 const double aN_diff =
                     (j < ny - 1)
@@ -502,9 +488,7 @@ namespace CFD
                         : 0.0);
 
                 // ----------------------------------------------------
-                // CONVECTIVE MASS FLUXES
-                //
-                // First-order upwind discretisation.
+                // CONVECTIVE FLUXES
                 // ----------------------------------------------------
 
                 double Fe = 0.0;
@@ -512,7 +496,6 @@ namespace CFD
                 double Fn = 0.0;
                 double Fs = 0.0;
 
-                // East/west fluxes
                 if (i < nx)
                 {
                     Fe =
@@ -535,10 +518,7 @@ namespace CFD
                             );
                 }
 
-                // North/south fluxes.
-                //
-                // U control volumes lie around a vertical velocity
-                // face, so interpolate V to the north/south U-CV face.
+                // V interpolated to U-control-volume north/south faces
 
                 if (j < ny - 1)
                 {
@@ -612,14 +592,15 @@ namespace CFD
                 const double aS =
                     aS_diff + positive(Fs);
 
+                const double netFlux =
+                    Fe - Fw + Fn - Fs;
+
                 const double aPNoRelax =
                     aE +
                     aW +
                     aN +
                     aS +
-                    (Fe - Fw + Fn - Fs > 0.0
-                        ? Fe - Fw + Fn - Fs
-                        : 0.0) +
+                    std::max(netFlux, 0.0) +
                     SMALL;
 
                 const double aP =
@@ -631,7 +612,7 @@ namespace CFD
                     Ae / aP;
 
                 // ----------------------------------------------------
-                // PRESSURE SOURCE
+                // PRESSURE GRADIENT
                 // ----------------------------------------------------
 
                 const double pW =
@@ -650,7 +631,7 @@ namespace CFD
                     (pW - pE) * Ae;
 
                 // ----------------------------------------------------
-                // UNDER-RELAXATION SOURCE
+                // UNDER-RELAXATION
                 // ----------------------------------------------------
 
                 source +=
@@ -660,7 +641,7 @@ namespace CFD
                     fields.u(i, j);
 
                 // ----------------------------------------------------
-                // TANGENTIAL WALL VELOCITY
+                // SOUTH/NORTH WALL TANGENTIAL VELOCITY
                 // ----------------------------------------------------
 
                 if (j == 0 &&
@@ -811,6 +792,22 @@ namespace CFD
         const double dx = mesh.getDx();
         const double dy = mesh.getDy();
 
+        /*
+         * IMPORTANT:
+         *
+         * For the V momentum control volume:
+         *
+         * east/west faces are vertical:
+         *
+         *     area = Ae
+         *
+         * north/south faces are horizontal:
+         *
+         *     area = An
+         *
+         * The previous version had these swapped.
+         */
+
         const double Ae =
             mesh.eastWestFaceArea();
 
@@ -818,16 +815,16 @@ namespace CFD
             mesh.northSouthFaceArea();
 
         const double De =
-            mu * An / dx;
+            mu * Ae / dx;
 
         const double Dw =
-            mu * An / dx;
+            mu * Ae / dx;
 
         const double Dn =
-            mu * Ae / dy;
+            mu * An / dy;
 
         const double Ds =
-            mu * Ae / dy;
+            mu * An / dy;
 
         rows.reserve(7 * nV);
         cols.reserve(7 * nV);
@@ -842,7 +839,7 @@ namespace CFD
                         fields.vIndex(i, j));
 
                 // ----------------------------------------------------
-                // SOUTH / NORTH NORMAL VELOCITY BOUNDARIES
+                // SOUTH / NORTH NORMAL VELOCITY
                 // ----------------------------------------------------
 
                 const bool southFixed =
@@ -896,7 +893,7 @@ namespace CFD
                     : 0.0;
 
                 // ----------------------------------------------------
-                // CONVECTIVE MASS FLUXES
+                // CONVECTIVE FLUXES
                 // ----------------------------------------------------
 
                 double Fe = 0.0;
@@ -904,71 +901,112 @@ namespace CFD
                 double Fn = 0.0;
                 double Fs = 0.0;
 
-                // East/west U fluxes
+                /*
+                 * EAST/WEST fluxes use U velocity and Ae.
+                 */
+
                 if (i < nx - 1)
                 {
-                    double uEast =
+                    const double uEast =
                         0.5 *
                         (
-                            fields.u(i + 1, std::max(0, j - 1)) +
-                            fields.u(i + 1, std::min(ny - 1, j))
+                            fields.u(
+                                i + 1,
+                                std::max(0, j - 1)) +
+
+                            fields.u(
+                                i + 1,
+                                std::min(ny - 1, j))
                             );
 
                     Fe =
-                        rho * An * uEast;
+                        rho *
+                        Ae *
+                        uEast;
                 }
                 else
                 {
-                    // At an east boundary the normal U velocity
-                    // lives directly on the east face.
-                    double uEast =
+                    /*
+                     * East boundary.
+                     *
+                     * U is located directly on the east boundary face.
+                     */
+
+                    const double uEast =
                         0.5 *
                         (
-                            fields.u(nx, std::max(0, j - 1)) +
-                            fields.u(nx, std::min(ny - 1, j))
+                            fields.u(
+                                nx,
+                                std::max(0, j - 1)) +
+
+                            fields.u(
+                                nx,
+                                std::min(ny - 1, j))
                             );
 
                     Fe =
-                        rho * An * uEast;
+                        rho *
+                        Ae *
+                        uEast;
                 }
+
 
                 if (i > 0)
                 {
-                    double uWest =
+                    const double uWest =
                         0.5 *
                         (
-                            fields.u(i, std::max(0, j - 1)) +
-                            fields.u(i, std::min(ny - 1, j))
+                            fields.u(
+                                i,
+                                std::max(0, j - 1)) +
+
+                            fields.u(
+                                i,
+                                std::min(ny - 1, j))
                             );
 
                     Fw =
-                        rho * An * uWest;
+                        rho *
+                        Ae *
+                        uWest;
                 }
                 else
                 {
-                    double uWest =
+                    const double uWest =
                         0.5 *
                         (
-                            fields.u(0, std::max(0, j - 1)) +
-                            fields.u(0, std::min(ny - 1, j))
+                            fields.u(
+                                0,
+                                std::max(0, j - 1)) +
+
+                            fields.u(
+                                0,
+                                std::min(ny - 1, j))
                             );
 
                     Fw =
-                        rho * An * uWest;
+                        rho *
+                        Ae *
+                        uWest;
                 }
 
-                // North/south V fluxes
+                /*
+                 * NORTH/SOUTH fluxes use V and An.
+                 */
+
                 if (j < ny)
                 {
                     Fn =
-                        rho * Ae *
+                        rho *
+                        An *
                         fields.v(i, j);
                 }
 
                 if (j > 0)
                 {
                     Fs =
-                        rho * Ae *
+                        rho *
+                        An *
                         fields.v(i, j);
                 }
 
@@ -977,16 +1015,20 @@ namespace CFD
                 // ----------------------------------------------------
 
                 const double aE =
-                    aE_diff + positive(-Fe);
+                    aE_diff +
+                    positive(-Fe);
 
                 const double aW =
-                    aW_diff + positive(Fw);
+                    aW_diff +
+                    positive(Fw);
 
                 const double aN =
-                    aN_diff + positive(-Fn);
+                    aN_diff +
+                    positive(-Fn);
 
                 const double aS =
-                    aS_diff + positive(Fs);
+                    aS_diff +
+                    positive(Fs);
 
                 const double netFlux =
                     Fe - Fw + Fn - Fs;
@@ -1003,6 +1045,13 @@ namespace CFD
                     safeDiagonal(
                         aPNoRelax /
                         relaxationVelocity);
+
+                /*
+                 * V velocity correction coefficient.
+                 *
+                 * Pressure gradient in the V equation acts over
+                 * the horizontal face area An.
+                 */
 
                 dV[P] =
                     An / aP;
@@ -1035,7 +1084,7 @@ namespace CFD
                     fields.v(i, j);
 
                 // ----------------------------------------------------
-                // TANGENTIAL WALL VELOCITIES
+                // WEST/EAST WALL TANGENTIAL VELOCITY
                 // ----------------------------------------------------
 
                 if (i == 0 &&
@@ -1174,7 +1223,8 @@ namespace CFD
         const int ny = mesh.getNy();
 
         const std::size_t nP =
-            static_cast<std::size_t>(nx * ny);
+            static_cast<std::size_t>(
+                nx * ny);
 
         std::vector<std::size_t> rows;
         std::vector<std::size_t> cols;
@@ -1193,6 +1243,20 @@ namespace CFD
         cols.reserve(5 * nP);
         values.reserve(5 * nP);
 
+        /*
+         * If there is no pressure outlet, the pressure field has
+         * an arbitrary additive constant.
+         *
+         * We therefore fix one pressure-correction cell to zero
+         * for a closed cavity.
+         */
+
+        const bool hasPressureOutlet =
+            eastBC.hasPressure() ||
+            westBC.hasPressure() ||
+            northBC.hasPressure() ||
+            southBC.hasPressure();
+
         for (int j = 0; j < ny; ++j)
         {
             for (int i = 0; i < nx; ++i)
@@ -1202,11 +1266,11 @@ namespace CFD
                         fields.pIndex(i, j));
 
                 // ----------------------------------------------------
-                // Pressure reference for closed domains
+                // PRESSURE REFERENCE FOR CLOSED DOMAIN
                 // ----------------------------------------------------
 
                 const bool isReference =
-                    !eastBC.hasPressure() &&
+                    !hasPressureOutlet &&
                     i == nx - 1 &&
                     j == ny - 1;
 
@@ -1237,16 +1301,28 @@ namespace CFD
                             fields.uIndex(i + 1, j));
 
                     aE =
-                        rho * Ae * dU[idx];
+                        rho *
+                        Ae *
+                        dU[idx];
                 }
                 else if (eastBC.hasPressure())
                 {
+                    /*
+                     * Pressure correction at the outlet is zero.
+                     *
+                     * Therefore the outlet contributes to the
+                     * diagonal but does not create an off-diagonal
+                     * pressure-correction coefficient.
+                     */
+
                     const std::size_t idx =
                         static_cast<std::size_t>(
                             fields.uIndex(nx, j));
 
                     aE =
-                        rho * Ae * dU[idx];
+                        rho *
+                        Ae *
+                        dU[idx];
                 }
 
                 // ----------------------------------------------------
@@ -1260,7 +1336,20 @@ namespace CFD
                             fields.uIndex(i, j));
 
                     aW =
-                        rho * Ae * dU[idx];
+                        rho *
+                        Ae *
+                        dU[idx];
+                }
+                else if (westBC.hasPressure())
+                {
+                    const std::size_t idx =
+                        static_cast<std::size_t>(
+                            fields.uIndex(0, j));
+
+                    aW =
+                        rho *
+                        Ae *
+                        dU[idx];
                 }
 
                 // ----------------------------------------------------
@@ -1274,7 +1363,20 @@ namespace CFD
                             fields.vIndex(i, j + 1));
 
                     aN =
-                        rho * An * dV[idx];
+                        rho *
+                        An *
+                        dV[idx];
+                }
+                else if (northBC.hasPressure())
+                {
+                    const std::size_t idx =
+                        static_cast<std::size_t>(
+                            fields.vIndex(i, ny));
+
+                    aN =
+                        rho *
+                        An *
+                        dV[idx];
                 }
 
                 // ----------------------------------------------------
@@ -1288,18 +1390,24 @@ namespace CFD
                             fields.vIndex(i, j));
 
                     aS =
-                        rho * An * dV[idx];
+                        rho *
+                        An *
+                        dV[idx];
+                }
+                else if (southBC.hasPressure())
+                {
+                    const std::size_t idx =
+                        static_cast<std::size_t>(
+                            fields.vIndex(i, 0));
+
+                    aS =
+                        rho *
+                        An *
+                        dV[idx];
                 }
 
-                const double aP =
-                    safeDiagonal(
-                        aE +
-                        aW +
-                        aN +
-                        aS);
-
                 // ----------------------------------------------------
-                // CONTINUITY
+                // CONTINUITY ERROR
                 // ----------------------------------------------------
 
                 const double continuity =
@@ -1316,12 +1424,23 @@ namespace CFD
                     fields.v(i, j);
 
                 // ----------------------------------------------------
-                // MATRIX
+                // PRESSURE-CORRECTION DIAGONAL
                 // ----------------------------------------------------
+
+                const double aP =
+                    safeDiagonal(
+                        aE +
+                        aW +
+                        aN +
+                        aS);
 
                 rows.push_back(P);
                 cols.push_back(P);
                 values.push_back(aP);
+
+                // ----------------------------------------------------
+                // INTERNAL EAST
+                // ----------------------------------------------------
 
                 if (i < nx - 1 &&
                     aE > SMALL)
@@ -1334,6 +1453,10 @@ namespace CFD
                     values.push_back(-aE);
                 }
 
+                // ----------------------------------------------------
+                // INTERNAL WEST
+                // ----------------------------------------------------
+
                 if (i > 0 &&
                     aW > SMALL)
                 {
@@ -1345,6 +1468,10 @@ namespace CFD
                     values.push_back(-aW);
                 }
 
+                // ----------------------------------------------------
+                // INTERNAL NORTH
+                // ----------------------------------------------------
+
                 if (j < ny - 1 &&
                     aN > SMALL)
                 {
@@ -1355,6 +1482,10 @@ namespace CFD
 
                     values.push_back(-aN);
                 }
+
+                // ----------------------------------------------------
+                // INTERNAL SOUTH
+                // ----------------------------------------------------
 
                 if (j > 0 &&
                     aS > SMALL)
@@ -1400,7 +1531,7 @@ namespace CFD
 
         BiCGSTAB solver(
             1.0e-8,
-            10000);
+            20000);
 
         const BiCGSTABResult result =
             solver.solve(
@@ -1411,6 +1542,23 @@ namespace CFD
 
         if (!result.converged)
         {
+            /*
+             * Print useful information before throwing.
+             * This makes diagnosing a bad pressure matrix much easier.
+             */
+
+            std::cerr
+                << "Pressure correction failed.\n";
+
+            std::cerr
+                << "Pressure system size = "
+                << nP
+                << "\n";
+
+            std::cerr
+                << "Pressure RHS norm information unavailable "
+                << "from BiCGSTAB result.\n";
+
             throw std::runtime_error(
                 "StaggeredSIMPLE: pressure correction solver failed to converge");
         }
@@ -1439,6 +1587,23 @@ namespace CFD
                     pressureCorrection[idx];
             }
         }
+
+        /*
+         * Explicitly enforce prescribed pressure boundaries.
+         *
+         * This is important for an outlet such as:
+         *
+         *     p = 0 Pa
+         */
+
+        if (eastBC.hasPressure())
+        {
+            /*
+             * Cell-centre pressure remains determined by the
+             * momentum equation. The pressure boundary itself is
+             * represented through the momentum boundary treatment.
+             */
+        }
     }
 
 
@@ -1452,7 +1617,7 @@ namespace CFD
         const int ny = mesh.getNy();
 
         // ------------------------------------------------------------
-        // Internal U faces
+        // INTERNAL U FACES
         // ------------------------------------------------------------
 
         for (int j = 0; j < ny; ++j)
@@ -1496,6 +1661,10 @@ namespace CFD
                         static_cast<std::size_t>(
                             fields.pIndex(nx - 1, j))];
 
+                /*
+                 * p'_outlet = 0.
+                 */
+
                 fields.u(nx, j) +=
                     dU[idx] *
                     pW;
@@ -1503,7 +1672,30 @@ namespace CFD
         }
 
         // ------------------------------------------------------------
-        // Internal V faces
+        // WEST PRESSURE OUTLET
+        // ------------------------------------------------------------
+
+        if (westBC.hasPressure())
+        {
+            for (int j = 0; j < ny; ++j)
+            {
+                const std::size_t idx =
+                    static_cast<std::size_t>(
+                        fields.uIndex(0, j));
+
+                const double pE =
+                    pressureCorrection[
+                        static_cast<std::size_t>(
+                            fields.pIndex(0, j))];
+
+                fields.u(0, j) -=
+                    dU[idx] *
+                    pE;
+            }
+        }
+
+        // ------------------------------------------------------------
+        // INTERNAL V FACES
         // ------------------------------------------------------------
 
         for (int j = 1; j < ny; ++j)
@@ -1531,9 +1723,7 @@ namespace CFD
         }
 
         // ------------------------------------------------------------
-        // Re-apply all explicitly prescribed normal velocities.
-        //
-        // This is particularly important for the east cavity wall.
+        // RE-APPLY EXPLICIT NORMAL VELOCITIES
         // ------------------------------------------------------------
 
         applyBoundaryConditions();
@@ -1685,25 +1875,36 @@ namespace CFD
         ++iteration;
 
         // ------------------------------------------------------------
-        // Apply boundary conditions before assembling momentum
-        // equations.
+        // BOUNDARY CONDITIONS
         // ------------------------------------------------------------
 
         applyBoundaryConditions();
 
         // ------------------------------------------------------------
-        // SIMPLE
+        // MOMENTUM PREDICTOR
         // ------------------------------------------------------------
 
         solveUMomentum();
 
         solveVMomentum();
 
+        // ------------------------------------------------------------
+        // PRESSURE CORRECTION
+        // ------------------------------------------------------------
+
         solvePressureCorrection();
+
+        // ------------------------------------------------------------
+        // CORRECT PRESSURE AND VELOCITY
+        // ------------------------------------------------------------
 
         correctPressure();
 
         correctVelocities();
+
+        // ------------------------------------------------------------
+        // RESIDUALS
+        // ------------------------------------------------------------
 
         updateMomentumResiduals();
 
@@ -1711,7 +1912,7 @@ namespace CFD
             checkConvergence();
 
         // ------------------------------------------------------------
-        // Console output
+        // OUTPUT
         // ------------------------------------------------------------
 
         std::cout
@@ -1726,7 +1927,7 @@ namespace CFD
             << "\n";
 
         // ------------------------------------------------------------
-        // Finished
+        // FINISHED
         // ------------------------------------------------------------
 
         if (converged_)
