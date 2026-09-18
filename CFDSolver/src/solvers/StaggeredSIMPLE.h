@@ -29,10 +29,8 @@ namespace CFD
 
         SparseMatrix uMatrix;
         Vector uRHS;
-
         SparseMatrix vMatrix;
         Vector vRHS;
-
         SparseMatrix pressureMatrix;
         Vector pressureRHS;
         Vector pressureCorrection;
@@ -47,9 +45,10 @@ namespace CFD
         double rho{ 1.0 };
         double mu{ 0.01 };
 
+        // Continuity is in mass-flow units. Momentum residuals are
+        // dimensionless relative algebraic L1 residuals.
         double convergenceTolerance{ 1.0e-6 };
         double momentumTolerance_{ 1.0e-6 };
-
         std::size_t maxIterations{ 1000 };
 
         // ============================================================
@@ -57,11 +56,10 @@ namespace CFD
         // ============================================================
 
         std::size_t iteration{ 0 };
-
-        bool converged_{ false };
-        bool finished_{ false };
-
-        double residual{ 0.0 };
+        double residual{ 0.0 }; // Legacy alias for continuityResidual_.
+        double continuityResidual_{ 0.0 };
+        double uMomentumResidual_{ 0.0 };
+        double vMomentumResidual_{ 0.0 };
 
         double continuityResidual_{ 0.0 };
         double uMomentumResidual_{ 0.0 };
@@ -93,7 +91,6 @@ namespace CFD
 
         void assembleUMomentum();
         void solveUMomentum();
-
         void assembleVMomentum();
         void solveVMomentum();
 
@@ -104,7 +101,8 @@ namespace CFD
         void correctVelocities();
 
         void updateMomentumResiduals();
-
+        double calculateResidual();
+        bool checkConvergence();
         double calculateResidual();
         bool checkConvergence();
 
@@ -131,7 +129,9 @@ namespace CFD
 
         void setConvergenceTolerance(double value);
         void setMomentumConvergenceTolerance(double value);
+        void setMaxIterations(std::size_t value);
 
+        void setDensity(double value);
         void setMaxIterations(std::size_t value);
 
         void setDensity(double value);
@@ -146,7 +146,8 @@ namespace CFD
 
         double getConvergenceTolerance() const;
         double getMomentumConvergenceTolerance() const;
-
+        double getDensity() const;
+        double getViscosity() const;
         double getDensity() const;
         double getViscosity() const;
 
@@ -154,11 +155,15 @@ namespace CFD
 
         std::size_t getIteration() const;
 
-        // ============================================================
-        // RESIDUALS
-        // ============================================================
-
+        // getResidual remains for backwards compatibility and returns the
+        // unnormalised continuity residual.
         double getResidual() const;
+        double getContinuityResidual() const;
+        double getUMomentumResidual() const;
+        double getResidual() const;
+        double getContinuityResidual() const;
+        double getUMomentumResidual() const;
+        double getVMomentumResidual() const;
 
         double getContinuityResidual() const;
         double getUMomentumResidual() const;
