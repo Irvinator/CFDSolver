@@ -15,8 +15,7 @@ namespace CFD
     {
         constexpr double SMALL = 1.0e-14;
 
-        
-            double safeDiagonal(double value)
+        double safeDiagonal(double value)
         {
             if (!std::isfinite(value) ||
                 std::abs(value) < SMALL)
@@ -25,6 +24,11 @@ namespace CFD
             }
 
             return value;
+        }
+
+        double positive(double value)
+        {
+            return std::max(value, 0.0);
         }
     }
 
@@ -99,23 +103,14 @@ namespace CFD
                 k < rowPtr[row + 1];
                 ++k)
             {
-                ax +=
-                    values[k] *
-                    solution[colIdx[k]];
+                ax += values[k] * solution[colIdx[k]];
             }
 
-            l1Residual +=
-                std::abs(
-                    ax - rhs[row]);
-
-            l1Rhs +=
-                std::abs(
-                    rhs[row]);
+            l1Residual += std::abs(ax - rhs[row]);
+            l1Rhs += std::abs(rhs[row]);
         }
 
-        return
-            l1Residual /
-            std::max(l1Rhs, 1.0);
+        return l1Residual / std::max(l1Rhs, 1.0);
     }
 
 
@@ -150,13 +145,11 @@ namespace CFD
         const int ny = mesh.getNy();
 
         dU.assign(
-            static_cast<std::size_t>(
-                (nx + 1) * ny),
+            static_cast<std::size_t>((nx + 1) * ny),
             0.0);
 
         dV.assign(
-            static_cast<std::size_t>(
-                nx * (ny + 1)),
+            static_cast<std::size_t>(nx * (ny + 1)),
             0.0);
     }
 
@@ -165,8 +158,7 @@ namespace CFD
     // SETTINGS
     // ================================================================
 
-    void StaggeredSIMPLE::setPressureRelaxation(
-        double value)
+    void StaggeredSIMPLE::setPressureRelaxation(double value)
     {
         if (!std::isfinite(value) ||
             value <= 0.0 ||
@@ -180,8 +172,7 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setVelocityRelaxation(
-        double value)
+    void StaggeredSIMPLE::setVelocityRelaxation(double value)
     {
         if (!std::isfinite(value) ||
             value <= 0.0 ||
@@ -195,8 +186,7 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setConvergenceTolerance(
-        double value)
+    void StaggeredSIMPLE::setConvergenceTolerance(double value)
     {
         if (!std::isfinite(value) ||
             value <= 0.0)
@@ -209,8 +199,7 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setMomentumConvergenceTolerance(
-        double value)
+    void StaggeredSIMPLE::setMomentumConvergenceTolerance(double value)
     {
         if (!std::isfinite(value) ||
             value <= 0.0)
@@ -223,8 +212,7 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setMaxIterations(
-        std::size_t value)
+    void StaggeredSIMPLE::setMaxIterations(std::size_t value)
     {
         if (value == 0)
         {
@@ -236,8 +224,7 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setDensity(
-        double value)
+    void StaggeredSIMPLE::setDensity(double value)
     {
         if (!std::isfinite(value) ||
             value <= 0.0)
@@ -250,8 +237,7 @@ namespace CFD
     }
 
 
-    void StaggeredSIMPLE::setViscosity(
-        double value)
+    void StaggeredSIMPLE::setViscosity(double value)
     {
         if (!std::isfinite(value) ||
             value <= 0.0)
@@ -350,7 +336,17 @@ namespace CFD
         const int ny = mesh.getNy();
 
         // ------------------------------------------------------------
-        // West U boundary
+        // WEST / EAST U boundaries
+        //
+        // U is normal to the west/east walls.
+        //
+        // This is important for the cavity:
+        //
+        // west U = 0
+        // east U = 0
+        //
+        // Without explicitly enforcing the east U boundary, the
+        // cavity can behave as though the right wall is partially open.
         // ------------------------------------------------------------
 
         for (int j = 0; j < ny; ++j)
@@ -360,10 +356,18 @@ namespace CFD
                 fields.u(0, j) =
                     westBC.getU();
             }
+
+            if (eastBC.hasU())
+            {
+                fields.u(nx, j) =
+                    eastBC.getU();
+            }
         }
 
         // ------------------------------------------------------------
-        // South / North V boundaries
+        // SOUTH / NORTH V boundaries
+        //
+        // V is normal to the south/north walls.
         // ------------------------------------------------------------
 
         for (int i = 0; i < nx; ++i)
@@ -382,12 +386,8 @@ namespace CFD
         }
 
         /*
-         * Tangential velocity components are not directly overwritten here.
-         *
-         * Their wall values are imposed through the half-cell diffusion
-         * terms in the momentum equations.
-         *
-         * Pressure remains cell-centred.
+         * Tangential wall velocities are imposed through the
+         * half-cell diffusion terms in the momentum equations.
          */
     }
 
@@ -402,21 +402,16 @@ namespace CFD
         const int ny = mesh.getNy();
 
         const std::size_t nU =
-            static_cast<std::size_t>(
-                (nx + 1) * ny);
+            static_cast<std::size_t>((nx + 1) * ny);
 
         std::vector<std::size_t> rows;
         std::vector<std::size_t> cols;
         std::vector<double> values;
 
-        uRHS =
-            Vector(nU, 0.0);
+        uRHS = Vector(nU, 0.0);
 
-        const double dx =
-            mesh.getDx();
-
-        const double dy =
-            mesh.getDy();
+        const double dx = mesh.getDx();
+        const double dy = mesh.getDy();
 
         const double Ae =
             mesh.eastWestFaceArea();
@@ -424,12 +419,21 @@ namespace CFD
         const double An =
             mesh.northSouthFaceArea();
 
+        const double De =
+            mu * Ae / dx;
+
         const double Dw =
+            mu * Ae / dx;
+
+        const double Dn =
             mu * An / dy;
 
-        rows.reserve(5 * nU);
-        cols.reserve(5 * nU);
-        values.reserve(5 * nU);
+        const double Ds =
+            mu * An / dy;
+
+        rows.reserve(7 * nU);
+        cols.reserve(7 * nU);
+        values.reserve(7 * nU);
 
         for (int j = 0; j < ny; ++j)
         {
@@ -440,61 +444,182 @@ namespace CFD
                         fields.uIndex(i, j));
 
                 // ----------------------------------------------------
-                // Fixed west U boundary
+                // WEST NORMAL VELOCITY BOUNDARY
                 // ----------------------------------------------------
 
-                const bool fixed =
-                    (i == 0 &&
-                        westBC.hasU());
+                const bool westFixed =
+                    (i == 0 && westBC.hasU());
 
-                if (fixed)
+                // ----------------------------------------------------
+                // EAST NORMAL VELOCITY BOUNDARY
+                //
+                // This is the critical cavity correction.
+                // A stationary or moving wall has prescribed U.
+                // An outlet does not.
+                // ----------------------------------------------------
+
+                const bool eastFixed =
+                    (i == nx && eastBC.hasU());
+
+                if (westFixed || eastFixed)
                 {
                     rows.push_back(P);
                     cols.push_back(P);
                     values.push_back(1.0);
 
                     uRHS[P] =
-                        westBC.getU();
+                        westFixed
+                        ? westBC.getU()
+                        : eastBC.getU();
 
-                    dU[P] =
-                        0.0;
+                    dU[P] = 0.0;
 
                     continue;
                 }
 
                 // ----------------------------------------------------
-                // Diffusion coefficients
+                // DIFFUSIVE COEFFICIENTS
+                // ----------------------------------------------------
+
+                const double aE_diff =
+                    (i < nx) ? De : 0.0;
+
+                const double aW_diff =
+                    (i > 0) ? Dw : 0.0;
+
+                const double aN_diff =
+                    (j < ny - 1)
+                    ? Dn
+                    : (northBC.hasU()
+                        ? 2.0 * Dn
+                        : 0.0);
+
+                const double aS_diff =
+                    (j > 0)
+                    ? Ds
+                    : (southBC.hasU()
+                        ? 2.0 * Ds
+                        : 0.0);
+
+                // ----------------------------------------------------
+                // CONVECTIVE MASS FLUXES
+                //
+                // First-order upwind discretisation.
+                // ----------------------------------------------------
+
+                double Fe = 0.0;
+                double Fw = 0.0;
+                double Fn = 0.0;
+                double Fs = 0.0;
+
+                // East/west fluxes
+                if (i < nx)
+                {
+                    Fe =
+                        rho * Ae *
+                        0.5 *
+                        (
+                            fields.u(i, j) +
+                            fields.u(i + 1, j)
+                            );
+                }
+
+                if (i > 0)
+                {
+                    Fw =
+                        rho * Ae *
+                        0.5 *
+                        (
+                            fields.u(i, j) +
+                            fields.u(i - 1, j)
+                            );
+                }
+
+                // North/south fluxes.
+                //
+                // U control volumes lie around a vertical velocity
+                // face, so interpolate V to the north/south U-CV face.
+
+                if (j < ny - 1)
+                {
+                    double vNorth = 0.0;
+
+                    if (i == 0)
+                    {
+                        vNorth =
+                            fields.v(0, j + 1);
+                    }
+                    else if (i == nx)
+                    {
+                        vNorth =
+                            fields.v(nx - 1, j + 1);
+                    }
+                    else
+                    {
+                        vNorth =
+                            0.5 *
+                            (
+                                fields.v(i - 1, j + 1) +
+                                fields.v(i, j + 1)
+                                );
+                    }
+
+                    Fn =
+                        rho * An * vNorth;
+                }
+
+                if (j > 0)
+                {
+                    double vSouth = 0.0;
+
+                    if (i == 0)
+                    {
+                        vSouth =
+                            fields.v(0, j);
+                    }
+                    else if (i == nx)
+                    {
+                        vSouth =
+                            fields.v(nx - 1, j);
+                    }
+                    else
+                    {
+                        vSouth =
+                            0.5 *
+                            (
+                                fields.v(i - 1, j) +
+                                fields.v(i, j)
+                                );
+                    }
+
+                    Fs =
+                        rho * An * vSouth;
+                }
+
+                // ----------------------------------------------------
+                // UPWIND COEFFICIENTS
                 // ----------------------------------------------------
 
                 const double aE =
-                    (i < nx)
-                    ? mu * Ae / dx
-                    : 0.0;
+                    aE_diff + positive(-Fe);
 
                 const double aW =
-                    (i > 0)
-                    ? mu * Ae / dx
-                    : 0.0;
+                    aW_diff + positive(Fw);
 
                 const double aN =
-                    (j < ny - 1)
-                    ? Dw
-                    : (northBC.hasU()
-                        ? 2.0 * Dw
-                        : 0.0);
+                    aN_diff + positive(-Fn);
 
                 const double aS =
-                    (j > 0)
-                    ? Dw
-                    : (southBC.hasU()
-                        ? 2.0 * Dw
-                        : 0.0);
+                    aS_diff + positive(Fs);
 
                 const double aPNoRelax =
                     aE +
                     aW +
                     aN +
                     aS +
+                    (Fe - Fw + Fn - Fs > 0.0
+                        ? Fe - Fw + Fn - Fs
+                        : 0.0) +
                     SMALL;
 
                 const double aP =
@@ -506,7 +631,7 @@ namespace CFD
                     Ae / aP;
 
                 // ----------------------------------------------------
-                // Pressure source
+                // PRESSURE SOURCE
                 // ----------------------------------------------------
 
                 const double pW =
@@ -524,6 +649,10 @@ namespace CFD
                 double source =
                     (pW - pE) * Ae;
 
+                // ----------------------------------------------------
+                // UNDER-RELAXATION SOURCE
+                // ----------------------------------------------------
+
                 source +=
                     ((1.0 - relaxationVelocity) /
                         relaxationVelocity) *
@@ -531,7 +660,7 @@ namespace CFD
                     fields.u(i, j);
 
                 // ----------------------------------------------------
-                // Tangential wall velocity
+                // TANGENTIAL WALL VELOCITY
                 // ----------------------------------------------------
 
                 if (j == 0 &&
@@ -539,7 +668,7 @@ namespace CFD
                 {
                     source +=
                         2.0 *
-                        Dw *
+                        Dn *
                         southBC.getU();
                 }
 
@@ -548,12 +677,12 @@ namespace CFD
                 {
                     source +=
                         2.0 *
-                        Dw *
+                        Dn *
                         northBC.getU();
                 }
 
                 // ----------------------------------------------------
-                // Matrix entries
+                // MATRIX
                 // ----------------------------------------------------
 
                 rows.push_back(P);
@@ -566,6 +695,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.uIndex(i + 1, j)));
+
                     values.push_back(-aE);
                 }
 
@@ -575,6 +705,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.uIndex(i - 1, j)));
+
                     values.push_back(-aW);
                 }
 
@@ -584,6 +715,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.uIndex(i, j + 1)));
+
                     values.push_back(-aN);
                 }
 
@@ -593,18 +725,16 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.uIndex(i, j - 1)));
+
                     values.push_back(-aS);
                 }
 
-                uRHS[P] =
-                    source;
+                uRHS[P] = source;
             }
         }
 
         uMatrix =
-            SparseMatrix(
-                nU,
-                nU);
+            SparseMatrix(nU, nU);
 
         uMatrix.setFromTriplets(
             rows,
@@ -626,13 +756,9 @@ namespace CFD
                 (mesh.getNx() + 1) *
                 mesh.getNy());
 
-        Vector solution(
-            nU,
-            0.0);
+        Vector solution(nU, 0.0);
 
-        for (std::size_t k = 0;
-            k < nU;
-            ++k)
+        for (std::size_t k = 0; k < nU; ++k)
         {
             solution[k] =
                 fields.uData()[k];
@@ -655,9 +781,7 @@ namespace CFD
                 "StaggeredSIMPLE: U momentum solver failed to converge");
         }
 
-        for (std::size_t k = 0;
-            k < nU;
-            ++k)
+        for (std::size_t k = 0; k < nU; ++k)
         {
             fields.uData()[k] =
                 solution[k];
@@ -682,14 +806,10 @@ namespace CFD
         std::vector<std::size_t> cols;
         std::vector<double> values;
 
-        vRHS =
-            Vector(nV, 0.0);
+        vRHS = Vector(nV, 0.0);
 
-        const double dx =
-            mesh.getDx();
-
-        const double dy =
-            mesh.getDy();
+        const double dx = mesh.getDx();
+        const double dy = mesh.getDy();
 
         const double Ae =
             mesh.eastWestFaceArea();
@@ -697,12 +817,21 @@ namespace CFD
         const double An =
             mesh.northSouthFaceArea();
 
-        const double Dv =
-            mu * Ae / dx;
+        const double De =
+            mu * An / dx;
 
-        rows.reserve(5 * nV);
-        cols.reserve(5 * nV);
-        values.reserve(5 * nV);
+        const double Dw =
+            mu * An / dx;
+
+        const double Dn =
+            mu * Ae / dy;
+
+        const double Ds =
+            mu * Ae / dy;
+
+        rows.reserve(7 * nV);
+        cols.reserve(7 * nV);
+        values.reserve(7 * nV);
 
         for (int j = 0; j <= ny; ++j)
         {
@@ -713,65 +842,161 @@ namespace CFD
                         fields.vIndex(i, j));
 
                 // ----------------------------------------------------
-                // Fixed south/north V boundary
+                // SOUTH / NORTH NORMAL VELOCITY BOUNDARIES
                 // ----------------------------------------------------
 
-                const bool fixed =
-                    (j == 0 &&
-                        southBC.hasV()) ||
-                    (j == ny &&
-                        northBC.hasV());
+                const bool southFixed =
+                    (j == 0 && southBC.hasV());
 
-                if (fixed)
+                const bool northFixed =
+                    (j == ny && northBC.hasV());
+
+                if (southFixed || northFixed)
                 {
                     rows.push_back(P);
                     cols.push_back(P);
                     values.push_back(1.0);
 
                     vRHS[P] =
-                        (j == 0)
+                        southFixed
                         ? southBC.getV()
                         : northBC.getV();
 
-                    dV[P] =
-                        0.0;
+                    dV[P] = 0.0;
 
                     continue;
                 }
 
                 // ----------------------------------------------------
-                // Diffusion coefficients
+                // DIFFUSION
+                // ----------------------------------------------------
+
+                const double aE_diff =
+                    (i < nx - 1)
+                    ? De
+                    : (eastBC.hasV()
+                        ? 2.0 * De
+                        : 0.0);
+
+                const double aW_diff =
+                    (i > 0)
+                    ? Dw
+                    : (westBC.hasV()
+                        ? 2.0 * Dw
+                        : 0.0);
+
+                const double aN_diff =
+                    (j < ny)
+                    ? Dn
+                    : 0.0;
+
+                const double aS_diff =
+                    (j > 0)
+                    ? Ds
+                    : 0.0;
+
+                // ----------------------------------------------------
+                // CONVECTIVE MASS FLUXES
+                // ----------------------------------------------------
+
+                double Fe = 0.0;
+                double Fw = 0.0;
+                double Fn = 0.0;
+                double Fs = 0.0;
+
+                // East/west U fluxes
+                if (i < nx - 1)
+                {
+                    double uEast =
+                        0.5 *
+                        (
+                            fields.u(i + 1, std::max(0, j - 1)) +
+                            fields.u(i + 1, std::min(ny - 1, j))
+                            );
+
+                    Fe =
+                        rho * An * uEast;
+                }
+                else
+                {
+                    // At an east boundary the normal U velocity
+                    // lives directly on the east face.
+                    double uEast =
+                        0.5 *
+                        (
+                            fields.u(nx, std::max(0, j - 1)) +
+                            fields.u(nx, std::min(ny - 1, j))
+                            );
+
+                    Fe =
+                        rho * An * uEast;
+                }
+
+                if (i > 0)
+                {
+                    double uWest =
+                        0.5 *
+                        (
+                            fields.u(i, std::max(0, j - 1)) +
+                            fields.u(i, std::min(ny - 1, j))
+                            );
+
+                    Fw =
+                        rho * An * uWest;
+                }
+                else
+                {
+                    double uWest =
+                        0.5 *
+                        (
+                            fields.u(0, std::max(0, j - 1)) +
+                            fields.u(0, std::min(ny - 1, j))
+                            );
+
+                    Fw =
+                        rho * An * uWest;
+                }
+
+                // North/south V fluxes
+                if (j < ny)
+                {
+                    Fn =
+                        rho * Ae *
+                        fields.v(i, j);
+                }
+
+                if (j > 0)
+                {
+                    Fs =
+                        rho * Ae *
+                        fields.v(i, j);
+                }
+
+                // ----------------------------------------------------
+                // UPWIND COEFFICIENTS
                 // ----------------------------------------------------
 
                 const double aE =
-                    (i < nx - 1)
-                    ? Dv
-                    : (eastBC.hasV()
-                        ? 2.0 * Dv
-                        : 0.0);
+                    aE_diff + positive(-Fe);
 
                 const double aW =
-                    (i > 0)
-                    ? Dv
-                    : (westBC.hasV()
-                        ? 2.0 * Dv
-                        : 0.0);
+                    aW_diff + positive(Fw);
 
                 const double aN =
-                    (j < ny)
-                    ? mu * An / dy
-                    : 0.0;
+                    aN_diff + positive(-Fn);
 
                 const double aS =
-                    (j > 0)
-                    ? mu * An / dy
-                    : 0.0;
+                    aS_diff + positive(Fs);
+
+                const double netFlux =
+                    Fe - Fw + Fn - Fs;
 
                 const double aPNoRelax =
                     aE +
                     aW +
                     aN +
                     aS +
+                    std::max(netFlux, 0.0) +
                     SMALL;
 
                 const double aP =
@@ -783,7 +1008,7 @@ namespace CFD
                     An / aP;
 
                 // ----------------------------------------------------
-                // Pressure source
+                // PRESSURE SOURCE
                 // ----------------------------------------------------
 
                 const double pS =
@@ -799,6 +1024,10 @@ namespace CFD
                 double source =
                     (pS - pN) * An;
 
+                // ----------------------------------------------------
+                // UNDER-RELAXATION
+                // ----------------------------------------------------
+
                 source +=
                     ((1.0 - relaxationVelocity) /
                         relaxationVelocity) *
@@ -806,7 +1035,7 @@ namespace CFD
                     fields.v(i, j);
 
                 // ----------------------------------------------------
-                // Tangential wall velocity
+                // TANGENTIAL WALL VELOCITIES
                 // ----------------------------------------------------
 
                 if (i == 0 &&
@@ -814,7 +1043,7 @@ namespace CFD
                 {
                     source +=
                         2.0 *
-                        Dv *
+                        Dw *
                         westBC.getV();
                 }
 
@@ -823,12 +1052,12 @@ namespace CFD
                 {
                     source +=
                         2.0 *
-                        Dv *
+                        De *
                         eastBC.getV();
                 }
 
                 // ----------------------------------------------------
-                // Matrix entries
+                // MATRIX
                 // ----------------------------------------------------
 
                 rows.push_back(P);
@@ -841,6 +1070,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.vIndex(i + 1, j)));
+
                     values.push_back(-aE);
                 }
 
@@ -850,6 +1080,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.vIndex(i - 1, j)));
+
                     values.push_back(-aW);
                 }
 
@@ -859,6 +1090,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.vIndex(i, j + 1)));
+
                     values.push_back(-aN);
                 }
 
@@ -868,18 +1100,16 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.vIndex(i, j - 1)));
+
                     values.push_back(-aS);
                 }
 
-                vRHS[P] =
-                    source;
+                vRHS[P] = source;
             }
         }
 
         vMatrix =
-            SparseMatrix(
-                nV,
-                nV);
+            SparseMatrix(nV, nV);
 
         vMatrix.setFromTriplets(
             rows,
@@ -901,13 +1131,9 @@ namespace CFD
                 mesh.getNx() *
                 (mesh.getNy() + 1));
 
-        Vector solution(
-            nV,
-            0.0);
+        Vector solution(nV, 0.0);
 
-        for (std::size_t k = 0;
-            k < nV;
-            ++k)
+        for (std::size_t k = 0; k < nV; ++k)
         {
             solution[k] =
                 fields.vData()[k];
@@ -930,9 +1156,7 @@ namespace CFD
                 "StaggeredSIMPLE: V momentum solver failed to converge");
         }
 
-        for (std::size_t k = 0;
-            k < nV;
-            ++k)
+        for (std::size_t k = 0; k < nV; ++k)
         {
             fields.vData()[k] =
                 solution[k];
@@ -950,8 +1174,7 @@ namespace CFD
         const int ny = mesh.getNy();
 
         const std::size_t nP =
-            static_cast<std::size_t>(
-                nx * ny);
+            static_cast<std::size_t>(nx * ny);
 
         std::vector<std::size_t> rows;
         std::vector<std::size_t> cols;
@@ -979,7 +1202,7 @@ namespace CFD
                         fields.pIndex(i, j));
 
                 // ----------------------------------------------------
-                // Pressure reference
+                // Pressure reference for closed domains
                 // ----------------------------------------------------
 
                 const bool isReference =
@@ -993,8 +1216,7 @@ namespace CFD
                     cols.push_back(P);
                     values.push_back(1.0);
 
-                    pressureRHS[P] =
-                        0.0;
+                    pressureRHS[P] = 0.0;
 
                     continue;
                 }
@@ -1005,61 +1227,68 @@ namespace CFD
                 double aS = 0.0;
 
                 // ----------------------------------------------------
-                // Pressure correction coefficients
+                // EAST
                 // ----------------------------------------------------
 
                 if (i < nx - 1)
                 {
+                    const std::size_t idx =
+                        static_cast<std::size_t>(
+                            fields.uIndex(i + 1, j));
+
                     aE =
-                        rho *
-                        Ae *
-                        dU[
-                            static_cast<std::size_t>(
-                                fields.uIndex(i + 1, j))
-                        ];
+                        rho * Ae * dU[idx];
                 }
                 else if (eastBC.hasPressure())
                 {
+                    const std::size_t idx =
+                        static_cast<std::size_t>(
+                            fields.uIndex(nx, j));
+
                     aE =
-                        rho *
-                        Ae *
-                        dU[
-                            static_cast<std::size_t>(
-                                fields.uIndex(nx, j))
-                        ];
+                        rho * Ae * dU[idx];
                 }
+
+                // ----------------------------------------------------
+                // WEST
+                // ----------------------------------------------------
 
                 if (i > 0)
                 {
+                    const std::size_t idx =
+                        static_cast<std::size_t>(
+                            fields.uIndex(i, j));
+
                     aW =
-                        rho *
-                        Ae *
-                        dU[
-                            static_cast<std::size_t>(
-                                fields.uIndex(i, j))
-                        ];
+                        rho * Ae * dU[idx];
                 }
+
+                // ----------------------------------------------------
+                // NORTH
+                // ----------------------------------------------------
 
                 if (j < ny - 1)
                 {
+                    const std::size_t idx =
+                        static_cast<std::size_t>(
+                            fields.vIndex(i, j + 1));
+
                     aN =
-                        rho *
-                        An *
-                        dV[
-                            static_cast<std::size_t>(
-                                fields.vIndex(i, j + 1))
-                        ];
+                        rho * An * dV[idx];
                 }
+
+                // ----------------------------------------------------
+                // SOUTH
+                // ----------------------------------------------------
 
                 if (j > 0)
                 {
+                    const std::size_t idx =
+                        static_cast<std::size_t>(
+                            fields.vIndex(i, j));
+
                     aS =
-                        rho *
-                        An *
-                        dV[
-                            static_cast<std::size_t>(
-                                fields.vIndex(i, j))
-                        ];
+                        rho * An * dV[idx];
                 }
 
                 const double aP =
@@ -1070,7 +1299,7 @@ namespace CFD
                         aS);
 
                 // ----------------------------------------------------
-                // Current continuity imbalance
+                // CONTINUITY
                 // ----------------------------------------------------
 
                 const double continuity =
@@ -1087,7 +1316,7 @@ namespace CFD
                     fields.v(i, j);
 
                 // ----------------------------------------------------
-                // Matrix
+                // MATRIX
                 // ----------------------------------------------------
 
                 rows.push_back(P);
@@ -1101,6 +1330,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.pIndex(i + 1, j)));
+
                     values.push_back(-aE);
                 }
 
@@ -1111,6 +1341,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.pIndex(i - 1, j)));
+
                     values.push_back(-aW);
                 }
 
@@ -1121,6 +1352,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.pIndex(i, j + 1)));
+
                     values.push_back(-aN);
                 }
 
@@ -1131,6 +1363,7 @@ namespace CFD
                     cols.push_back(
                         static_cast<std::size_t>(
                             fields.pIndex(i, j - 1)));
+
                     values.push_back(-aS);
                 }
 
@@ -1140,9 +1373,7 @@ namespace CFD
         }
 
         pressureMatrix =
-            SparseMatrix(
-                nP,
-                nP);
+            SparseMatrix(nP, nP);
 
         pressureMatrix.setFromTriplets(
             rows,
@@ -1165,9 +1396,7 @@ namespace CFD
                 mesh.getNy());
 
         pressureCorrection =
-            Vector(
-                nP,
-                0.0);
+            Vector(nP, 0.0);
 
         BiCGSTAB solver(
             1.0e-8,
@@ -1210,12 +1439,6 @@ namespace CFD
                     pressureCorrection[idx];
             }
         }
-
-        /*
-         * A prescribed outlet pressure is treated as a face pressure
-         * condition in the momentum equation. We therefore do not
-         * overwrite the cell-centred outlet pressure here.
-         */
     }
 
 
@@ -1257,7 +1480,7 @@ namespace CFD
         }
 
         // ------------------------------------------------------------
-        // East outlet U face
+        // EAST PRESSURE OUTLET
         // ------------------------------------------------------------
 
         if (eastBC.hasPressure())
@@ -1307,6 +1530,12 @@ namespace CFD
             }
         }
 
+        // ------------------------------------------------------------
+        // Re-apply all explicitly prescribed normal velocities.
+        //
+        // This is particularly important for the east cavity wall.
+        // ------------------------------------------------------------
+
         applyBoundaryConditions();
     }
 
@@ -1317,17 +1546,9 @@ namespace CFD
 
     void StaggeredSIMPLE::updateMomentumResiduals()
     {
-        /*
-         * Reassemble using the corrected pressure and velocity fields.
-         *
-         * This measures the algebraic residual of the actual current
-         * SIMPLE iterate rather than simply reporting the residual of
-         * the internal BiCGSTAB solve.
-         */
-
-         // ------------------------------------------------------------
-         // U
-         // ------------------------------------------------------------
+        // ------------------------------------------------------------
+        // U
+        // ------------------------------------------------------------
 
         assembleUMomentum();
 
@@ -1394,8 +1615,7 @@ namespace CFD
         const double An =
             mesh.northSouthFaceArea();
 
-        double totalResidual =
-            0.0;
+        double totalResidual = 0.0;
 
         for (int j = 0; j < ny; ++j)
         {
@@ -1432,7 +1652,6 @@ namespace CFD
         continuityResidual_ =
             calculateResidual();
 
-        // Legacy residual remains continuity residual.
         residual =
             continuityResidual_;
 
@@ -1454,16 +1673,8 @@ namespace CFD
 
     void StaggeredSIMPLE::step()
     {
-        // ------------------------------------------------------------
-        // Do nothing if already finished
-        // ------------------------------------------------------------
-
         if (finished_)
             return;
-
-        // ------------------------------------------------------------
-        // Maximum iteration protection
-        // ------------------------------------------------------------
 
         if (iteration >= maxIterations)
         {
@@ -1471,37 +1682,31 @@ namespace CFD
             return;
         }
 
-        // ------------------------------------------------------------
-        // Advance iteration counter
-        // ------------------------------------------------------------
-
         ++iteration;
 
         // ------------------------------------------------------------
-        // SIMPLE algorithm
+        // Apply boundary conditions before assembling momentum
+        // equations.
         // ------------------------------------------------------------
 
         applyBoundaryConditions();
 
-        // 1. Solve U momentum equation
+        // ------------------------------------------------------------
+        // SIMPLE
+        // ------------------------------------------------------------
+
         solveUMomentum();
 
-        // 2. Solve V momentum equation
         solveVMomentum();
 
-        // 3. Assemble and solve pressure correction
         solvePressureCorrection();
 
-        // 4. Correct pressure
         correctPressure();
 
-        // 5. Correct velocities
         correctVelocities();
 
-        // 6. Calculate momentum residuals
         updateMomentumResiduals();
 
-        // 7. Check convergence
         converged_ =
             checkConvergence();
 
@@ -1521,13 +1726,12 @@ namespace CFD
             << "\n";
 
         // ------------------------------------------------------------
-        // Finished conditions
+        // Finished
         // ------------------------------------------------------------
 
         if (converged_)
         {
-            finished_ =
-                true;
+            finished_ = true;
 
             std::cout
                 << "\nStaggered SIMPLE converged after "
@@ -1536,8 +1740,7 @@ namespace CFD
         }
         else if (iteration >= maxIterations)
         {
-            finished_ =
-                true;
+            finished_ = true;
 
             std::cout
                 << "\nStaggered SIMPLE reached maximum iterations.\n"
@@ -1580,18 +1783,10 @@ namespace CFD
 
     void StaggeredSIMPLE::solve()
     {
-        /*
-         * Reset the iterative state so solve() can be called on a
-         * newly initialised solver.
-         */
-
         iteration = 0;
 
-        converged_ =
-            false;
-
-        finished_ =
-            false;
+        converged_ = false;
+        finished_ = false;
 
         residual =
             std::numeric_limits<double>::infinity();
@@ -1610,6 +1805,4 @@ namespace CFD
             step();
         }
     }
-    
-
 }

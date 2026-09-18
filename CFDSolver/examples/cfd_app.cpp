@@ -480,7 +480,6 @@ static void navierStokesSolverThread(
         solver.setVelocityRelaxation(
             0.7);
 
-        // Much tighter than the previous 0.16.
         solver.setConvergenceTolerance(
             1.0e-6);
 
