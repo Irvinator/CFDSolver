@@ -1,4 +1,3 @@
-
 /**
  * CFD Solver Application
  * ImGui + OpenGL UI
@@ -7,11 +6,26 @@
  *  - Heat Diffusion 2D
  *  - Navier-Stokes 2D using StaggeredSIMPLE
  *
- * Navier-Stokes:
- *  - Independent North / South / East / West boundary conditions
- *  - Wall / Inlet / Outlet
- *  - Velocity or pressure specification
- *  - Supports lid-driven cavity setups
+ * Navier-Stokes boundary types:
+ *  - Stationary Wall
+ *  - Moving Wall
+ *  - Inlet
+ *  - Outlet
+ *
+ * Stationary Wall:
+ *  - U = 0
+ *  - V = 0
+ *
+ * Moving Wall:
+ *  - User-defined U
+ *  - User-defined V
+ *
+ * Inlet:
+ *  - User-defined U
+ *  - User-defined V
+ *
+ * Outlet:
+ *  - User-defined pressure
  */
 
 #include "renderer/Window.hpp"
@@ -47,7 +61,7 @@
  // RESULT FRAME
  // ================================================================
 
-    struct PendingFrame
+struct PendingFrame
 {
     // Heat
     std::vector<double> values;
@@ -64,7 +78,6 @@
     double globalMax = 1.0;
 
     // Navier-Stokes
-    // These are now stored PER FRAME.
     double pressureMin = 0.0;
     double pressureMax = 1.0;
 
@@ -412,6 +425,11 @@ static void navierStokesSolverThread(
             CFD::BoundarySide::west,
             westType);
 
+
+        // ------------------------------------------------------------
+        // Set boundary values
+        // ------------------------------------------------------------
+
         northBC.setVelocity(
             northU,
             northV);
@@ -440,6 +458,7 @@ static void navierStokesSolverThread(
         westBC.setPressure(
             westPressure);
 
+
         CFD::StaggeredSIMPLE solver(
             mesh,
             fields,
@@ -447,6 +466,7 @@ static void navierStokesSolverThread(
             southBC,
             eastBC,
             westBC);
+
 
         solver.setDensity(
             rho);
@@ -460,11 +480,13 @@ static void navierStokesSolverThread(
         solver.setVelocityRelaxation(
             0.7);
 
+        // Much tighter than the previous 0.16.
         solver.setConvergenceTolerance(
-            0.16);
+            1.0e-6);
 
         solver.setMaxIterations(
-            200);
+            1000);
+
 
         std::cout
             << "\n========================================\n"
@@ -555,11 +577,6 @@ static void navierStokesSolverThread(
 
             double time = 0.0;
 
-            // --------------------------------------------------------
-            // IMPORTANT:
-            // Each frame stores its own colour-map range.
-            // --------------------------------------------------------
-
             double pressureMin = 0.0;
             double pressureMax = 1.0;
 
@@ -569,7 +586,6 @@ static void navierStokesSolverThread(
             double velocityVMin = 0.0;
             double velocityVMax = 1.0;
         };
-
 
         std::vector<RawFrame> rawFrames;
 
@@ -587,11 +603,6 @@ static void navierStokesSolverThread(
         {
             solver.step();
 
-
-            // --------------------------------------------------------
-            // Create frame
-            // --------------------------------------------------------
-
             RawFrame rf;
 
             rf.pressure.resize(
@@ -606,12 +617,6 @@ static void navierStokesSolverThread(
                 static_cast<std::size_t>(
                     meshNx * meshNy));
 
-
-            // --------------------------------------------------------
-            // PER-FRAME MIN/MAX
-            //
-            // These are reset every iteration.
-            // --------------------------------------------------------
 
             double framePressureMin =
                 1.0e30;
@@ -633,7 +638,7 @@ static void navierStokesSolverThread(
 
 
             // --------------------------------------------------------
-            // Extract cell-centred values
+            // Cell-centred output
             // --------------------------------------------------------
 
             for (
@@ -673,11 +678,6 @@ static void navierStokesSolverThread(
                         static_cast<std::size_t>(
                             j * meshNx + i);
 
-
-                    // ------------------------------------------------
-                    // Store values
-                    // ------------------------------------------------
-
                     rf.pressure[index] =
                         pCell;
 
@@ -686,11 +686,6 @@ static void navierStokesSolverThread(
 
                     rf.velocityV[index] =
                         vCell;
-
-
-                    // ------------------------------------------------
-                    // Pressure range for THIS frame
-                    // ------------------------------------------------
 
                     framePressureMin =
                         std::min(
@@ -702,11 +697,6 @@ static void navierStokesSolverThread(
                             framePressureMax,
                             pCell);
 
-
-                    // ------------------------------------------------
-                    // U velocity range for THIS frame
-                    // ------------------------------------------------
-
                     frameVelocityUMin =
                         std::min(
                             frameVelocityUMin,
@@ -716,11 +706,6 @@ static void navierStokesSolverThread(
                         std::max(
                             frameVelocityUMax,
                             uCell);
-
-
-                    // ------------------------------------------------
-                    // V velocity range for THIS frame
-                    // ------------------------------------------------
 
                     frameVelocityVMin =
                         std::min(
@@ -736,7 +721,7 @@ static void navierStokesSolverThread(
 
 
             // --------------------------------------------------------
-            // Protect against zero-width ranges
+            // Prevent zero-width colour ranges
             // --------------------------------------------------------
 
             if (framePressureMax <= framePressureMin)
@@ -758,10 +743,6 @@ static void navierStokesSolverThread(
             }
 
 
-            // --------------------------------------------------------
-            // Store per-frame ranges
-            // --------------------------------------------------------
-
             rf.pressureMin =
                 framePressureMin;
 
@@ -781,22 +762,13 @@ static void navierStokesSolverThread(
                 frameVelocityVMax;
 
 
-            // --------------------------------------------------------
-            // Animation time = SIMPLE iteration
-            // --------------------------------------------------------
-
             rf.time =
                 static_cast<double>(
                     solver.getIteration());
 
-
             rawFrames.push_back(
                 std::move(rf));
 
-
-            // --------------------------------------------------------
-            // Progress
-            // --------------------------------------------------------
 
             const float progress =
                 static_cast<float>(
@@ -811,10 +783,6 @@ static void navierStokesSolverThread(
                     1.0f);
         }
 
-
-        // ============================================================
-        // NO FRAMES
-        // ============================================================
 
         if (rawFrames.empty())
         {
@@ -848,7 +816,7 @@ static void navierStokesSolverThread(
 
 
         // ============================================================
-        // SEND FRAMES TO MAIN THREAD
+        // SEND FRAMES
         // ============================================================
 
         {
@@ -873,12 +841,6 @@ static void navierStokesSolverThread(
 
                 pf.time =
                     rf.time;
-
-
-                // ----------------------------------------------------
-                // IMPORTANT:
-                // Pass the ranges belonging to THIS frame.
-                // ----------------------------------------------------
 
                 pf.pressureMin =
                     rf.pressureMin;
@@ -906,10 +868,6 @@ static void navierStokesSolverThread(
             }
         }
 
-
-        // ============================================================
-        // COMPLETE
-        // ============================================================
 
         std::cout
             << "\n========================================\n"
@@ -981,67 +939,50 @@ int main()
     // HEAT SETTINGS
     // ================================================================
 
-    float alpha =
-        1e-4f;
+    float alpha = 1e-4f;
 
-    float T_hot =
-        1.0f;
+    float T_hot = 1.0f;
 
-    float T_cold =
-        0.0f;
+    float T_cold = 0.0f;
 
 
     // ================================================================
     // NAVIER-STOKES SETTINGS
     // ================================================================
 
-    float rho =
-        1.0f;
+    float rho = 1.0f;
 
-    float mu =
-        0.01f;
+    float mu = 0.01f;
 
 
     // ================================================================
-    // NORTH BOUNDARY
+    // BOUNDARY CONDITIONS
+    //
+    // 0 = Stationary Wall
+    // 1 = Moving Wall
+    // 2 = Inlet
+    // 3 = Outlet
+    //
+    // Default = Lid-driven cavity
     // ================================================================
 
-    static int northTypeIndex = 0;
-
-    static float northU = 0.0f;
+    static int northTypeIndex = 1;
+    static float northU = 1.0f;
     static float northV = 0.0f;
     static float northPressure = 0.0f;
 
-
-    // ================================================================
-    // SOUTH BOUNDARY
-    // ================================================================
-
     static int southTypeIndex = 0;
-
     static float southU = 0.0f;
     static float southV = 0.0f;
     static float southPressure = 0.0f;
 
-
-    // ================================================================
-    // EAST BOUNDARY
-    // ================================================================
-
-    static int eastTypeIndex = 2;
-
+    static int eastTypeIndex = 0;
     static float eastU = 0.0f;
     static float eastV = 0.0f;
     static float eastPressure = 0.0f;
 
-
-    // ================================================================
-    // WEST BOUNDARY
-    // ================================================================
-
-    static int westTypeIndex = 1;
-
-    static float westU = 1.0f;
+    static int westTypeIndex = 0;
+    static float westU = 0.0f;
     static float westV = 0.0f;
     static float westPressure = 0.0f;
 
@@ -1184,8 +1125,7 @@ int main()
                 if (ImGui::MenuItem(
                     "Import OBJ..."))
                 {
-                    nfdchar_t* outPath =
-                        nullptr;
+                    nfdchar_t* outPath = nullptr;
 
                     nfdfilteritem_t filter =
                     {
@@ -1473,72 +1413,32 @@ int main()
                 "Velocity Magnitude"
             };
 
-            if (ImGui::Combo(
+            ImGui::Combo(
                 "##output_ns",
                 &nsOutputIndex,
                 nsOutputs,
-                IM_ARRAYSIZE(nsOutputs)))
-            {
-                switch (nsOutputIndex)
-                {
-                case 0:
-
-                    meshEditor.setOutputField(
-                        CFD::UI::OutputField::Pressure);
-
-                    break;
-
-                case 1:
-
-                    meshEditor.setOutputField(
-                        CFD::UI::OutputField::VelocityU);
-
-                    break;
-
-                case 2:
-
-                    meshEditor.setOutputField(
-                        CFD::UI::OutputField::VelocityV);
-
-                    break;
-
-                case 3:
-
-                    meshEditor.setOutputField(
-                        CFD::UI::OutputField::VelocityMagnitude);
-
-                    break;
-                }
-            }
+                IM_ARRAYSIZE(nsOutputs));
 
             switch (nsOutputIndex)
             {
             case 0:
-
                 meshEditor.setOutputField(
                     CFD::UI::OutputField::Pressure);
-
                 break;
 
             case 1:
-
                 meshEditor.setOutputField(
                     CFD::UI::OutputField::VelocityU);
-
                 break;
 
             case 2:
-
                 meshEditor.setOutputField(
                     CFD::UI::OutputField::VelocityV);
-
                 break;
 
             case 3:
-
                 meshEditor.setOutputField(
                     CFD::UI::OutputField::VelocityMagnitude);
-
                 break;
             }
         }
@@ -1632,15 +1532,16 @@ int main()
 
             const char* boundaryTypes[] =
             {
-                "Wall",
+                "Stationary Wall",
+                "Moving Wall",
                 "Inlet",
                 "Outlet"
             };
 
 
-            // --------------------------------------------------------
+            // ========================================================
             // NORTH
-            // --------------------------------------------------------
+            // ========================================================
 
             ImGui::Text("North");
 
@@ -1650,8 +1551,9 @@ int main()
                 boundaryTypes,
                 IM_ARRAYSIZE(boundaryTypes));
 
-            if (northTypeIndex == 2)
+            if (northTypeIndex == 3)
             {
+                // Outlet
                 ImGui::InputFloat(
                     "Pressure [Pa]##north",
                     &northPressure,
@@ -1659,8 +1561,11 @@ int main()
                     1.0f,
                     "%.3f");
             }
-            else
+            else if (
+                northTypeIndex == 1 ||
+                northTypeIndex == 2)
             {
+                // Moving Wall OR Inlet
                 ImGui::InputFloat(
                     "U [m/s]##north",
                     &northU,
@@ -1675,13 +1580,25 @@ int main()
                     1.0f,
                     "%.3f");
             }
+            else
+            {
+                // Stationary wall
+                northU = 0.0f;
+                northV = 0.0f;
+
+                ImGui::TextDisabled(
+                    "U = 0.000 m/s");
+
+                ImGui::TextDisabled(
+                    "V = 0.000 m/s");
+            }
 
             ImGui::Spacing();
 
 
-            // --------------------------------------------------------
+            // ========================================================
             // SOUTH
-            // --------------------------------------------------------
+            // ========================================================
 
             ImGui::Text("South");
 
@@ -1691,7 +1608,7 @@ int main()
                 boundaryTypes,
                 IM_ARRAYSIZE(boundaryTypes));
 
-            if (southTypeIndex == 2)
+            if (southTypeIndex == 3)
             {
                 ImGui::InputFloat(
                     "Pressure [Pa]##south",
@@ -1700,7 +1617,9 @@ int main()
                     1.0f,
                     "%.3f");
             }
-            else
+            else if (
+                southTypeIndex == 1 ||
+                southTypeIndex == 2)
             {
                 ImGui::InputFloat(
                     "U [m/s]##south",
@@ -1716,13 +1635,24 @@ int main()
                     1.0f,
                     "%.3f");
             }
+            else
+            {
+                southU = 0.0f;
+                southV = 0.0f;
+
+                ImGui::TextDisabled(
+                    "U = 0.000 m/s");
+
+                ImGui::TextDisabled(
+                    "V = 0.000 m/s");
+            }
 
             ImGui::Spacing();
 
 
-            // --------------------------------------------------------
+            // ========================================================
             // EAST
-            // --------------------------------------------------------
+            // ========================================================
 
             ImGui::Text("East");
 
@@ -1732,7 +1662,7 @@ int main()
                 boundaryTypes,
                 IM_ARRAYSIZE(boundaryTypes));
 
-            if (eastTypeIndex == 2)
+            if (eastTypeIndex == 3)
             {
                 ImGui::InputFloat(
                     "Pressure [Pa]##east",
@@ -1741,7 +1671,9 @@ int main()
                     1.0f,
                     "%.3f");
             }
-            else
+            else if (
+                eastTypeIndex == 1 ||
+                eastTypeIndex == 2)
             {
                 ImGui::InputFloat(
                     "U [m/s]##east",
@@ -1757,13 +1689,24 @@ int main()
                     1.0f,
                     "%.3f");
             }
+            else
+            {
+                eastU = 0.0f;
+                eastV = 0.0f;
+
+                ImGui::TextDisabled(
+                    "U = 0.000 m/s");
+
+                ImGui::TextDisabled(
+                    "V = 0.000 m/s");
+            }
 
             ImGui::Spacing();
 
 
-            // --------------------------------------------------------
+            // ========================================================
             // WEST
-            // --------------------------------------------------------
+            // ========================================================
 
             ImGui::Text("West");
 
@@ -1773,7 +1716,7 @@ int main()
                 boundaryTypes,
                 IM_ARRAYSIZE(boundaryTypes));
 
-            if (westTypeIndex == 2)
+            if (westTypeIndex == 3)
             {
                 ImGui::InputFloat(
                     "Pressure [Pa]##west",
@@ -1782,7 +1725,9 @@ int main()
                     1.0f,
                     "%.3f");
             }
-            else
+            else if (
+                westTypeIndex == 1 ||
+                westTypeIndex == 2)
             {
                 ImGui::InputFloat(
                     "U [m/s]##west",
@@ -1797,6 +1742,17 @@ int main()
                     0.1f,
                     1.0f,
                     "%.3f");
+            }
+            else
+            {
+                westU = 0.0f;
+                westV = 0.0f;
+
+                ImGui::TextDisabled(
+                    "U = 0.000 m/s");
+
+                ImGui::TextDisabled(
+                    "V = 0.000 m/s");
             }
 
             ImGui::Spacing();
@@ -1846,9 +1802,9 @@ int main()
                         meshEditor.meshSettings();
 
 
-                    // ------------------------------------------------
+                    // =================================================
                     // HEAT
-                    // ------------------------------------------------
+                    // =================================================
 
                     if (physType == 0)
                     {
@@ -1877,179 +1833,200 @@ int main()
                     }
 
 
-                    // ------------------------------------------------
+                    // =================================================
                     // NAVIER-STOKES
-                    // ------------------------------------------------
+                    // =================================================
 
-                    else if (physType == 1)
+                    else
                     {
-                        CFD::BoundaryType northType =
-                            CFD::BoundaryType::Wall;
-
-                        CFD::BoundaryType southType =
-                            CFD::BoundaryType::Wall;
-
-                        CFD::BoundaryType eastType =
-                            CFD::BoundaryType::Wall;
-
-                        CFD::BoundaryType westType =
-                            CFD::BoundaryType::Wall;
+                        CFD::BoundaryType northType;
+                        CFD::BoundaryType southType;
+                        CFD::BoundaryType eastType;
+                        CFD::BoundaryType westType;
 
 
                         // ------------------------------------------------
-                        // NORTH TYPE
+                        // NORTH
+                        //
+                        // 0 = stationary wall
+                        // 1 = moving wall
+                        // 2 = inlet
+                        // 3 = outlet
                         // ------------------------------------------------
 
                         switch (northTypeIndex)
                         {
                         case 0:
-
+                        case 1:
                             northType =
                                 CFD::BoundaryType::Wall;
-
-                            break;
-
-                        case 1:
-
-                            northType =
-                                CFD::BoundaryType::Inlet;
-
                             break;
 
                         case 2:
+                            northType =
+                                CFD::BoundaryType::Inlet;
+                            break;
 
+                        case 3:
                             northType =
                                 CFD::BoundaryType::Outlet;
+                            break;
 
+                        default:
+                            northType =
+                                CFD::BoundaryType::Wall;
                             break;
                         }
 
 
                         // ------------------------------------------------
-                        // SOUTH TYPE
+                        // SOUTH
                         // ------------------------------------------------
 
                         switch (southTypeIndex)
                         {
                         case 0:
-
+                        case 1:
                             southType =
                                 CFD::BoundaryType::Wall;
-
-                            break;
-
-                        case 1:
-
-                            southType =
-                                CFD::BoundaryType::Inlet;
-
                             break;
 
                         case 2:
+                            southType =
+                                CFD::BoundaryType::Inlet;
+                            break;
 
+                        case 3:
                             southType =
                                 CFD::BoundaryType::Outlet;
+                            break;
 
+                        default:
+                            southType =
+                                CFD::BoundaryType::Wall;
                             break;
                         }
 
 
                         // ------------------------------------------------
-                        // EAST TYPE
+                        // EAST
                         // ------------------------------------------------
 
                         switch (eastTypeIndex)
                         {
                         case 0:
-
+                        case 1:
                             eastType =
                                 CFD::BoundaryType::Wall;
-
-                            break;
-
-                        case 1:
-
-                            eastType =
-                                CFD::BoundaryType::Inlet;
-
                             break;
 
                         case 2:
+                            eastType =
+                                CFD::BoundaryType::Inlet;
+                            break;
 
+                        case 3:
                             eastType =
                                 CFD::BoundaryType::Outlet;
+                            break;
 
+                        default:
+                            eastType =
+                                CFD::BoundaryType::Wall;
                             break;
                         }
 
 
                         // ------------------------------------------------
-                        // WEST TYPE
+                        // WEST
                         // ------------------------------------------------
 
                         switch (westTypeIndex)
                         {
                         case 0:
-
+                        case 1:
                             westType =
                                 CFD::BoundaryType::Wall;
-
-                            break;
-
-                        case 1:
-
-                            westType =
-                                CFD::BoundaryType::Inlet;
-
                             break;
 
                         case 2:
+                            westType =
+                                CFD::BoundaryType::Inlet;
+                            break;
 
+                        case 3:
                             westType =
                                 CFD::BoundaryType::Outlet;
+                            break;
 
+                        default:
+                            westType =
+                                CFD::BoundaryType::Wall;
                             break;
                         }
 
 
                         // ------------------------------------------------
-                        // SET SELECTED OUTPUT
+                        // Safety:
+                        //
+                        // Stationary walls MUST have zero velocity.
+                        // ------------------------------------------------
+
+                        if (northTypeIndex == 0)
+                        {
+                            northU = 0.0f;
+                            northV = 0.0f;
+                        }
+
+                        if (southTypeIndex == 0)
+                        {
+                            southU = 0.0f;
+                            southV = 0.0f;
+                        }
+
+                        if (eastTypeIndex == 0)
+                        {
+                            eastU = 0.0f;
+                            eastV = 0.0f;
+                        }
+
+                        if (westTypeIndex == 0)
+                        {
+                            westU = 0.0f;
+                            westV = 0.0f;
+                        }
+
+
+                        // ------------------------------------------------
+                        // Output field
                         // ------------------------------------------------
 
                         switch (nsOutputIndex)
                         {
                         case 0:
-
                             meshEditor.setOutputField(
                                 CFD::UI::OutputField::Pressure);
-
                             break;
 
                         case 1:
-
                             meshEditor.setOutputField(
                                 CFD::UI::OutputField::VelocityU);
-
                             break;
 
                         case 2:
-
                             meshEditor.setOutputField(
                                 CFD::UI::OutputField::VelocityV);
-
                             break;
 
                         case 3:
-
                             meshEditor.setOutputField(
                                 CFD::UI::OutputField::VelocityMagnitude);
-
                             break;
                         }
 
 
                         // ------------------------------------------------
-                        // START SOLVER THREAD
+                        // Start solver
                         // ------------------------------------------------
 
                         std::thread(
@@ -2068,46 +2045,34 @@ int main()
                                 mu),
 
                             northType,
-
                             static_cast<double>(
                                 northU),
-
                             static_cast<double>(
                                 northV),
-
                             static_cast<double>(
                                 northPressure),
 
                             southType,
-
                             static_cast<double>(
                                 southU),
-
                             static_cast<double>(
                                 southV),
-
                             static_cast<double>(
                                 southPressure),
 
                             eastType,
-
                             static_cast<double>(
                                 eastU),
-
                             static_cast<double>(
                                 eastV),
-
                             static_cast<double>(
                                 eastPressure),
 
                             westType,
-
                             static_cast<double>(
                                 westU),
-
                             static_cast<double>(
                                 westV),
-
                             static_cast<double>(
                                 westPressure)
 
@@ -2213,7 +2178,6 @@ int main()
         ImGui::SetCursorPosX(
             centre.x + 20);
 
-
         if (physType == 0)
         {
             ImGui::TextDisabled(
@@ -2231,31 +2195,19 @@ int main()
             switch (nsOutputIndex)
             {
             case 0:
-
-                resultName =
-                    "Pressure";
-
+                resultName = "Pressure";
                 break;
 
             case 1:
-
-                resultName =
-                    "Velocity U";
-
+                resultName = "Velocity U";
                 break;
 
             case 2:
-
-                resultName =
-                    "Velocity V";
-
+                resultName = "Velocity V";
                 break;
 
             case 3:
-
-                resultName =
-                    "Velocity Magnitude";
-
+                resultName = "Velocity Magnitude";
                 break;
             }
 
@@ -2436,4 +2388,3 @@ int main()
 
     return 0;
 }
-
