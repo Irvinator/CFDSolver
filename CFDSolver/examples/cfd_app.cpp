@@ -1220,7 +1220,10 @@ int main()
 
     meshEditor.showEditorWindow(false);
 
-    meshEditor.showViewportWindow(true);
+    // Start with the Mesh Viewport hidden.
+    // It is opened explicitly from View -> Mesh Viewport,
+    // or automatically when importing/running a case.
+    meshEditor.showViewportWindow(false);
 
     std::cout
         << "App running!\n";
@@ -1471,9 +1474,6 @@ int main()
         // ========================================================
 
         meshEditor.drawUI();
-
-        meshEditor.drawViewport();
-
 
         // ========================================================
         // LEFT TOOLBAR
@@ -2354,102 +2354,32 @@ int main()
 
 
         // ========================================================
-        // VIEWPORT
+        // MESH VIEWPORT
+        // ========================================================
+        //
+        // MeshEditor2D owns the actual "Mesh Viewport" ImGui window.
+        // Keep that window aligned with the application's central area.
+        // This fixes the viewport retaining its old size when the main
+        // application is resized/fullscreened.
+        //
+        // drawViewport() must be called first because the Mesh Viewport
+        // window does not exist while it is hidden.
         // ========================================================
 
-        ImGui::SetNextWindowPos(
-            { centerX, topY },
-            ImGuiCond_Always);
+        meshEditor.drawViewport();
 
-        ImGui::SetNextWindowSize(
-            { centerW, centerH },
-            ImGuiCond_Always);
-
-        ImGui::Begin(
-            "Viewport",
-            nullptr,
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoCollapse |
-            ImGuiWindowFlags_NoScrollbar);
-
-        const ImVec2 size =
-            ImGui::GetContentRegionAvail();
-
-        const ImVec2 centre =
+        if (meshEditor.isViewportWindowVisible())
         {
-            ImGui::GetCursorPosX()
-                + size.x * 0.5f
-                - 150,
+            ImGui::SetWindowPos(
+                "Mesh Viewport",
+                { centerX, topY },
+                ImGuiCond_Always);
 
-            ImGui::GetCursorPosY()
-                + size.y * 0.5f
-                - 30
-        };
-
-        ImGui::SetCursorPos(
-            centre);
-
-        ImGui::TextDisabled(
-            "OpenGL viewport renders here");
-
-        ImGui::SetCursorPosX(
-            centre.x + 20);
-
-        if (physType == 0)
-        {
-            ImGui::TextDisabled(
-                meshEditor.hasMesh()
-                ? "OBJ mesh loaded — see Mesh Viewport"
-                : meshEditor.hasScalarField()
-                ? "Temperature field active — see Mesh Viewport"
-                : "Temperature field");
+            ImGui::SetWindowSize(
+                "Mesh Viewport",
+                { centerW, centerH },
+                ImGuiCond_Always);
         }
-        else
-        {
-            const char* resultName =
-                "Pressure";
-
-            switch (nsOutputIndex)
-            {
-            case 0:
-                resultName = "Pressure";
-                break;
-
-            case 1:
-                resultName = "Velocity U";
-                break;
-
-            case 2:
-                resultName = "Velocity V";
-                break;
-
-            case 3:
-                resultName = "Velocity Magnitude";
-                break;
-            }
-
-            if (meshEditor.hasMesh())
-            {
-                ImGui::TextDisabled(
-                    "OBJ mesh loaded — see Mesh Viewport");
-            }
-            else if (meshEditor.hasScalarField())
-            {
-                ImGui::TextDisabled(
-                    "%s field active — see Mesh Viewport",
-                    resultName);
-            }
-            else
-            {
-                ImGui::TextDisabled(
-                    "%s field",
-                    resultName);
-            }
-        }
-
-        ImGui::End();
-
 
         // ========================================================
         // TIMELINE
